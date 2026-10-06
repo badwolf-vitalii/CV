@@ -657,11 +657,10 @@ async function clickSave(page) {
 
     await button.click({ timeout: 1500 });
 
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      if (!(await button.isVisible().catch(() => false))) return true;
-      await page.waitForTimeout(50);
-    }
-
+    // Europass sometimes needs more than a few hundred milliseconds to finish
+    // saving and restore the section card. This is event-based, not a blind delay:
+    // it returns immediately when the editor closes.
+    await button.waitFor({ state: 'hidden', timeout: 1800 }).catch(() => {});
     return true;
   }
 
@@ -1104,7 +1103,10 @@ async function existingRecordEditButton(page, recordText, sectionNames) {
 }
 
 async function waitForEducationForm(page) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  const saveButton = page.locator('#section-add-record-save').first();
+  await saveButton.waitFor({ state: 'visible', timeout: 1800 }).catch(() => {});
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const qualification = await fieldByLabel(
       page,
       ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
@@ -1132,31 +1134,20 @@ async function openEducationForm(page, item) {
 
   if (editButton) {
     await editButton.click();
-    await page.waitForTimeout(100);
     return await waitForEducationForm(page);
   }
 
   let section = await sectionCard(page, T.educationSection);
 
   if (section) {
-    const addButton = section.getByRole('button', {
-      name: /Add new|Add education|Aggiungi/i,
-    }).first();
+    const addButton = page.locator('#section-add-record-educationandtraining').first();
 
-    if (await visible(addButton)) {
-      await addButton.click();
-      await page.waitForTimeout(100);
+    try {
+      await addButton.waitFor({ state: 'visible', timeout: 1500 });
+      await addButton.click({ timeout: 1000 });
       return await waitForEducationForm(page);
-    }
-
-    const ariaAddButton = section.locator(
-      'button[aria-label*="Add new" i], button[aria-label*="Aggiungi" i]',
-    ).first();
-
-    if (await visible(ariaAddButton)) {
-      await ariaAddButton.click();
-      await page.waitForTimeout(100);
-      return await waitForEducationForm(page);
+    } catch {
+      // Fall through to the generic section path below.
     }
   }
 
@@ -1170,17 +1161,15 @@ async function openEducationForm(page, item) {
   let scope = await waitForEducationForm(page);
   if (scope) return scope;
 
-  if (section) {
-    const addButton = section.getByRole('button', {
-      name: /Add new|Add education|Aggiungi/i,
-    }).first();
-
-    if (await visible(addButton)) {
-      await addButton.click();
-      await page.waitForTimeout(100);
-      scope = await waitForEducationForm(page);
-      if (scope) return scope;
-    }
+  // If Europass created only the section card, use its stable Add-new button.
+  const addButton = page.locator('#section-add-record-educationandtraining').first();
+  try {
+    await addButton.waitFor({ state: 'visible', timeout: 1500 });
+    await addButton.click({ timeout: 1000 });
+    scope = await waitForEducationForm(page);
+    if (scope) return scope;
+  } catch {
+    // Report the failure below.
   }
 
   console.log(`  ! Education form could not be opened for: ${item.qualification}`);
