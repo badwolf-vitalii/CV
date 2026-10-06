@@ -21,7 +21,12 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     throw "Node.js was not found in PATH. Install Node.js before running Europass automation."
 }
 
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+$NpmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
+if (-not $NpmCommand) {
+    $NpmCommand = Get-Command npm -ErrorAction SilentlyContinue
+}
+
+if (-not $NpmCommand) {
     throw "npm was not found in PATH. Install Node.js with npm before running Europass automation."
 }
 
@@ -33,7 +38,7 @@ if (-not (Test-Path $PlaywrightModule) -or -not (Test-Path $YamlModule)) {
     Write-Host "Installing local Europass automation dependencies..."
     Push-Location $Root
     try {
-        & npm install --no-fund --no-audit --package-lock=false
+        & $NpmCommand.Path install --no-fund --no-audit --package-lock=false
         if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
         }
