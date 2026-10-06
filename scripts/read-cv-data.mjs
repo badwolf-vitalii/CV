@@ -7,6 +7,30 @@ const MONTHS = {
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
 };
 
+const EUROPASS_LANGUAGE_SKILLS = {
+  Italian: {
+    listening: 'C1',
+    reading: 'C1',
+    spokenInteraction: 'B2',
+    spokenProduction: 'B2',
+    writing: 'B2',
+  },
+  English: {
+    listening: 'B2',
+    reading: 'C1',
+    spokenInteraction: 'B2',
+    spokenProduction: 'B2',
+    writing: 'B2',
+  },
+  Russian: {
+    listening: 'C2',
+    reading: 'C2',
+    spokenInteraction: 'C2',
+    spokenProduction: 'C2',
+    writing: 'C2',
+  },
+};
+
 function typstText(value) {
   return String(value ?? '')
     .replace(/\\#/g, '#')
@@ -191,7 +215,21 @@ function parseLanguages(source) {
   if (!match) return [];
   return match[1].split('|').map((part) => {
     const [language, level] = part.split(/\s+-\s+/).map((x) => typstText(x));
-    return { language, level };
+    const defaultSkills = /native/i.test(level)
+      ? null
+      : {
+          listening: level,
+          reading: level,
+          spokenInteraction: level,
+          spokenProduction: level,
+          writing: level,
+        };
+
+    return {
+      language,
+      level,
+      skills: EUROPASS_LANGUAGE_SKILLS[language] ?? defaultSkills,
+    };
   });
 }
 
