@@ -20,7 +20,7 @@ const T = {
     save: ['Save', 'Add', 'Done'],
     about: ['About me', 'About myself', 'Personal statement'],
     workSection: ['Work experience'],
-    addWork: ['Add work experience', 'Add new work experience'],
+    addWork: ['Add new Work experience', 'Add work experience', 'Add new work experience'],
     educationSection: ['Education and training', 'Education'],
     addEducation: ['Add education and training', 'Add education'],
     languageSection: ['Language skills', 'Languages'],
@@ -118,17 +118,23 @@ async function fieldByLabel(scope, labels, { textEntryOnly = false } = {}) {
 
   // Prefer exact accessible labels. Partial matching can accidentally resolve
   // "Phone" to the phone-prefix combobox instead of the actual number input.
-  for (const exact of [true, false]) {
-    for (const label of labels) {
-      const candidate = await firstVisibleCandidate(
-        scope.getByLabel(label, { exact }),
-        predicate,
-      );
-      if (candidate) return candidate;
-    }
+  for (const label of labels) {
+    const candidate = await firstVisibleCandidate(
+      scope.getByLabel(label, { exact: true }),
+      predicate,
+    );
+    if (candidate) return candidate;
   }
 
-  for (const label of labels) {
+  for (const label of labels.filter((value) => normalize(value).length >= 5)) {
+    const candidate = await firstVisibleCandidate(
+      scope.getByLabel(label, { exact: false }),
+      predicate,
+    );
+    if (candidate) return candidate;
+  }
+
+  for (const label of labels.filter((value) => normalize(value).length >= 3)) {
     const labelNodes = scope.locator('label').filter({ hasText: label });
     const labelCount = Math.min(await labelNodes.count(), 20);
     for (let i = 0; i < labelCount; i += 1) {
@@ -378,7 +384,7 @@ function dateValueForType(isoMonth, type) {
 
 async function fillDate(scope, labels, isoMonth, { optional = false } = {}) {
   if (!isoMonth) return false;
-  const field = await fieldByLabel(scope, labels);
+  const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
   if (!field) {
     if (!optional) console.log(`  ! Date field not found: ${labels[0]}`);
     return false;
@@ -438,6 +444,15 @@ async function fillPersonal(page) {
   await fillAddress(page, scope);
   await fillAny(scope, ['Website', 'LinkedIn', 'Sito web'], data.contact.linkedin, { optional: true });
 
+  const aboutEditor = scope.locator(
+    '#perso-info-personalDescription .ql-editor[contenteditable="true"]',
+  ).first();
+  if (await visible(aboutEditor)) {
+    await aboutEditor.fill(data.summary);
+  } else {
+    console.log('  ! About me editor was not found in Personal information.');
+  }
+
   if (data.contact.showPhoto && data.contact.photoPath && fs.existsSync(data.contact.photoPath)) {
     const fileInput = scope.locator('input[type="file"]').first();
     if (await visible(fileInput)) {
@@ -446,38 +461,61 @@ async function fillPersonal(page) {
   }
 
   await clickSave(page);
+}
 
-  const aboutField = await fieldByLabel(page, T.about, { textEntryOnly: true });
-  if (aboutField) {
-    await aboutField.fill(data.summary).catch(async () => {
-      await aboutField.click();
-      await aboutField.press('Control+A');
-      await aboutField.press('Backspace');
-      await aboutField.type(data.summary);
-    });
-  } else {
-    const opened = await clickText(page, T.about);
-    if (opened) {
-      await page.waitForTimeout(400);
-      const aboutScope = await currentScope(page);
-      await fillAny(aboutScope, [...T.about, 'Description', 'Descrizione'], data.summary, { optional: true });
-      await clickSave(page);
-    } else {
-      console.log('  ! About me was not auto-located. You can paste it later if Europass hides this section until a later step.');
+async function openWorkForm(page, job) {
+  const existingRecord = page.locator('.record-container').filter({
+    hasText: job.company,
+  }).first();
+
+  if (await visible(existingRecord)) {
+    const editButton = existingRecord.locator(
+      'button[aria-label*="Edit the record of the section Work experience" i]',
+    ).first();
+    if (await visible(editButton)) {
+      await editButton.click();
+      await page.waitForTimeout(500);
+      return;
     }
   }
+
+  const addButton = page.locator('#section-add-record-workexperience').first();
+  if (await visible(addButton)) {
+    await addButton.click();
+    await page.waitForTimeout(500);
+    return;
+  }
+
+  await pressEnter(
+    `Open "${T.workSection[0]}" and choose Add for: ${job.title} - ${job.company}.`,
+  );
+}
+
+async function workFormScope(page) {
+  const employerLabels = [
+    'Employer',
+    'Employer name',
+    'Organisation',
+    'Company',
+    'Datore di lavoro',
+    'Nome del datore di lavoro',
+    'Organizzazione',
+  ];
+
+  const employer = await fieldByLabel(page, employerLabels, { textEntryOnly: true });
+  if (!employer) return await currentScope(page);
+
+  const form = employer.locator('xpath=ancestor::form[1]');
+  if (await visible(form)) return form;
+  return await currentScope(page);
 }
 
 async function fillWork(page) {
   console.log(`\n[2/6] Work experience (${data.work.length} entries)`);
   for (const [index, job] of data.work.entries()) {
     console.log(`  ${index + 1}. ${job.title} - ${job.company}`);
-    await ensureFormOpen(
-      page,
-      T.addWork,
-      `Open "${T.workSection[0]}" and choose Add for: ${job.title} - ${job.company}.`,
-    );
-    const scope = await currentScope(page);
+    await openWorkForm(page, job);
+    const scope = await workFormScope(page);
     await fillAny(scope, ['Job title', 'Occupation or position held', 'Position', 'Titolo professionale', 'Posizione ricoperta'], job.title);
     await fillAny(scope, ['Employer', 'Employer name', 'Organisation', 'Company', 'Datore di lavoro', 'Nome del datore di lavoro', 'Organizzazione'], job.company);
     await fillAny(scope, ['City', 'Town', 'Città', 'Comune'], job.location.city, { optional: true });
