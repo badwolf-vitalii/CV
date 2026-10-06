@@ -7,8 +7,8 @@
   margin: (x: 15mm, y: 13mm),
 )
 #set text(font: "Arial", size: 10pt)
-#set par(leading: 0.48em)
-#set list(indent: 12pt, body-indent: 4pt, spacing: 1.5pt)
+#set par(leading: 0.28em)
+#set list(indent: 12pt, body-indent: 4pt, spacing: 4pt)
 
 #let section(title) = {
   v(6pt)
