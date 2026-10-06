@@ -1166,6 +1166,23 @@ async function selectLabeledChoiceAt(page, scope, labels, index, values) {
   return selectPrimeNgText(page, control, values);
 }
 
+async function languageEntryScope(scope, index) {
+  const languageControl = await exactLabeledControl(
+    scope,
+    ['Other language', 'Altra lingua'],
+    index,
+  );
+
+  if (!languageControl) return scope;
+
+  const entry = languageControl.locator(
+    'xpath=ancestor::*[.//*[normalize-space(.)="Listening" or normalize-space(.)="Ascolto"] and .//*[normalize-space(.)="Reading" or normalize-space(.)="Lettura"] and .//*[contains(normalize-space(.),"Spoken interaction") or contains(normalize-space(.),"Interazione orale")]][1]',
+  );
+
+  if (await visible(entry)) return entry;
+  return scope;
+}
+
 async function openLanguageSkillsForm(page) {
   let scope = await languageSectionScope(page);
   if (scope) return scope;
@@ -1249,14 +1266,30 @@ async function fillLanguages(page) {
 
     await page.waitForTimeout(250);
 
-    for (const labels of [
-      ['Listening', 'Ascolto'],
-      ['Reading', 'Lettura'],
-      ['Spoken interaction', 'Interazione orale'],
-      ['Spoken production', 'Produzione orale'],
-      ['Writing', 'Scrittura'],
-    ]) {
-      await selectLabeledChoiceAt(page, languageScope, labels, index, [item.level]);
+    const entryScope = await languageEntryScope(languageScope, index);
+    const skillLevels = [
+      { key: 'listening', labels: ['Listening', 'Ascolto'] },
+      { key: 'reading', labels: ['Reading', 'Lettura'] },
+      { key: 'spokenInteraction', labels: ['Spoken interaction', 'Interazione orale'] },
+      { key: 'spokenProduction', labels: ['Spoken production', 'Produzione orale'] },
+      { key: 'writing', labels: ['Writing', 'Scrittura'] },
+    ];
+
+    for (const skill of skillLevels) {
+      const level = item.skills?.[skill.key] || item.level;
+      console.log(`    - ${skill.labels[0]}: ${level}`);
+
+      const levelSelected = await selectLabeledChoiceAt(
+        page,
+        entryScope,
+        skill.labels,
+        0,
+        [level],
+      );
+
+      if (!levelSelected) {
+        console.log(`      ! Could not select ${skill.labels[0]} level: ${level}`);
+      }
     }
   }
 
