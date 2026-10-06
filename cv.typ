@@ -110,6 +110,7 @@
     "Italy",
     [
       - Develop and maintain C\#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
+      - Contributed to ticketing projects for ATM and TN across the Lombardy region.
       - Build WPF applications and integrate software with POS terminals, printers, coin devices, card readers, and other external hardware/services.
       - Investigate production incidents across applications, services, devices, and communication layers; improve reliability, logging, error handling, and diagnostics.
       - Work with SQL Server and Oracle, Git, Jira, unit testing, IIS/Windows Services, deployments, maintenance, and legacy-system modernization.
