@@ -40,3 +40,18 @@ jobs:
         run: |
           cp personal.example.yaml personal.yaml
           typst compile cv.typ /tmp/Vitalii_Hanych_CV.pdf
+
+      - name: Validate CV build with photo
+        shell: bash
+        run: |
+          cat > photo-ci.svg <<'EOF'
+          <svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+            <rect width="300" height="300" fill="#ddd"/>
+            <circle cx="150" cy="115" r="60" fill="#999"/>
+            <rect x="70" y="185" width="160" height="115" rx="55" fill="#999"/>
+          </svg>
+          EOF
+          cp personal.example.yaml personal.yaml
+          sed -i 's/show_photo: false/show_photo: true/' personal.yaml
+          sed -i 's#photo_path: "photo.jpg"#photo_path: "photo-ci.svg"#' personal.yaml
+          typst compile cv.typ /tmp/Vitalii_Hanych_CV_with_photo.pdf
