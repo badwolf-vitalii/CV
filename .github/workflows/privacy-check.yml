@@ -1,0 +1,26 @@
+name: Privacy check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure private files are not tracked
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git ls-files --error-unmatch personal.yaml >/dev/null 2>&1; then
+            echo "personal.yaml must never be committed."
+            exit 1
+          fi
+
+          if [ -n "$(git ls-files '*.pdf')" ]; then
+            echo "Generated PDF files must not be committed."
+            exit 1
+          fi

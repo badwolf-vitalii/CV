@@ -1,0 +1,13 @@
+# Local private data
+/personal.yaml
+
+# Generated output
+/output/
+*.pdf
+
+# Editor / OS files
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
