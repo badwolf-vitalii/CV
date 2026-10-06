@@ -1165,20 +1165,172 @@ async function fillSkills(page) {
   }
 }
 
-async function fillProjects(page) {
-  console.log(`\n[6/6] Projects (${data.projects.length} entries)`);
-  for (const project of data.projects) {
-    const opened = await clickText(page, T.addProject);
-    if (!opened) {
-      console.log('  ! Projects section is not available on this screen. Skipping automatic project insertion.');
+async function ensureProjectsSection(page) {
+  let section = await sectionCard(page, T.projectSection);
+  if (section) return section;
+
+  const addSection = page.locator('#profile-add-section').first();
+  if (!(await visible(addSection))) {
+    console.log('  ! Add new section button was not found.');
+    return null;
+  }
+
+  console.log('  - Creating Projects section');
+  await addSection.click();
+  await page.waitForTimeout(300);
+
+  const dialog = page.getByRole('dialog').filter({
+    hasText: /Create a new section|Crea una nuova sezione/i,
+  }).last();
+
+  if (!(await visible(dialog))) {
+    console.log('  ! Create a new section dialog did not open.');
+    return null;
+  }
+
+  const sectionType = dialog.getByLabel(
+    /Select the section type|Seleziona il tipo di sezione/i,
+    { exact: false },
+  ).first();
+
+  if (!(await visible(sectionType))) {
+    console.log('  ! Section type selector was not found.');
+    return null;
+  }
+
+  try {
+    await sectionType.selectOption({ label: lang === 'it' ? 'Progetti' : 'Projects' });
+  } catch {
+    console.log('  ! Projects option was not found in the section type selector.');
+    return null;
+  }
+
+  await page.waitForTimeout(400);
+
+  section = await sectionCard(page, T.projectSection);
+  if (section) return section;
+
+  for (const label of [
+    /^Add$/i,
+    /^Create$/i,
+    /^Save$/i,
+    /^Continue$/i,
+    /^Aggiungi$/i,
+    /^Crea$/i,
+    /^Salva$/i,
+    /^Continua$/i,
+  ]) {
+    const button = dialog.getByRole('button', { name: label }).first();
+    if (await visible(button)) {
+      await button.click();
+      await page.waitForTimeout(500);
       break;
     }
+  }
+
+  section = await sectionCard(page, T.projectSection);
+  if (section) return section;
+
+  await pressEnter(
+    'Projects is selected in the "Create a new section" dialog. Finish creating the section in Europass, then return here.',
+  );
+
+  return await sectionCard(page, T.projectSection);
+}
+
+async function openProjectForm(page, project) {
+  const editButton = await existingRecordEditButton(
+    page,
+    project.name,
+    ['Projects', 'Project', 'Progetti', 'Progetto'],
+  );
+
+  if (editButton) {
+    await editButton.click();
     await page.waitForTimeout(400);
-    const scope = await currentScope(page);
-    await fillAny(scope, ['Project name', 'Name', 'Titolo del progetto', 'Nome'], project.name, { optional: true });
-    await fillAny(scope, ['Description', 'Descrizione'], `${project.description}\nTech: ${project.tech}`, { optional: true });
-    await fillAny(scope, ['Website', 'URL', 'Link', 'Sito web'], project.url, { optional: true });
-    await clickSave(page);
+    return await currentScope(page);
+  }
+
+  const section = await ensureProjectsSection(page);
+  if (!section) return null;
+
+  const addButton = section.getByRole('button', {
+    name: /^Add new$|^Add project$|^Aggiungi$|^Aggiungi progetto$/i,
+  }).first();
+
+  if (await visible(addButton)) {
+    await addButton.click();
+    await page.waitForTimeout(400);
+    return await currentScope(page);
+  }
+
+  const ariaAddButton = section.locator(
+    'button[aria-label*="Add new" i], button[aria-label*="Add project" i], button[aria-label*="Aggiungi" i]',
+  ).first();
+
+  if (await visible(ariaAddButton)) {
+    await ariaAddButton.click();
+    await page.waitForTimeout(400);
+    return await currentScope(page);
+  }
+
+  await pressEnter(
+    `Open the Projects section and choose Add new for: ${project.name}.`,
+  );
+
+  return await currentScope(page);
+}
+
+async function fillProjects(page) {
+  console.log(`\n[6/6] Projects (${data.projects.length} entries)`);
+
+  const section = await ensureProjectsSection(page);
+  if (!section) {
+    console.log('  ! Projects section could not be created.');
+    return;
+  }
+
+  for (const [index, project] of data.projects.entries()) {
+    console.log(`  ${index + 1}. ${project.name}`);
+
+    const scope = await openProjectForm(page, project);
+    if (!scope) {
+      console.log(`  ! Project form could not be opened for: ${project.name}`);
+      continue;
+    }
+
+    const nameFilled = await fillAny(
+      scope,
+      ['Project name', 'Name', 'Title', 'Titolo del progetto', 'Nome', 'Titolo'],
+      project.name,
+      { optional: true, page },
+    );
+
+    const descriptionFilled = await fillAny(
+      scope,
+      ['Description', 'Descrizione'],
+      `${project.description}\nTech: ${project.tech}`,
+      { optional: true, page },
+    );
+
+    await fillAny(
+      scope,
+      ['Website', 'URL', 'Link', 'Sito web'],
+      project.url,
+      { optional: true, page },
+    );
+
+    if (!nameFilled && !descriptionFilled) {
+      await pressEnter(
+        `The project form for "${project.name}" is open, but its fields were not recognised. Fill or inspect this form, then press Enter.`,
+      );
+    }
+
+    if (!(await clickSave(page))) {
+      await pressEnter(
+        `Save the project "${project.name}" in Europass, then return here.`,
+      );
+    }
   }
 }
 
