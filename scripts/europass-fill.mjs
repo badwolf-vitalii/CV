@@ -1925,6 +1925,7 @@ try {
     viewport: null,
     chromiumSandbox: true,
     acceptDownloads: true,
+    downloadsPath: outputDir,
     args: ['--start-maximized'],
   });
 
@@ -1936,18 +1937,27 @@ try {
 
   const pages = context.pages();
   const page = pages[0] ?? await context.newPage();
+
+  // Europass may close the CV tab as part of its final download flow.
+  // Keep one harmless tab alive so the persistent browser context and the
+  // Download object survive long enough for saveAs() to finish.
+  const keeperPage = await context.newPage();
+  await keeperPage.goto('about:blank');
+
   for (const existingPage of context.pages()) {
     attachDownloadHandler(existingPage);
   }
 
   page.setDefaultTimeout(8000);
   await page.goto(editorUrl, { waitUntil: 'domcontentloaded' });
+  await page.bringToFront();
 
   console.log('Europass automation started in Microsoft Edge.');
   console.log('The browser profile is stored locally in .europass-browser-profile and is ignored by Git.');
   console.log('No password or EU Login credential is read by the script.');
   console.log(`CV data loaded from cv.typ and personal.yaml for ${data.name}.`);
   console.log(`Browser downloads will be saved to: ${outputDir}`);
+  console.log('A blank keeper tab is left open intentionally so Europass cannot kill an in-progress download by closing the CV tab.');
 
   await pressEnter(
     'Log in if Europass asks you to. After login, you can stay on whatever page Europass opens; the script will return to the CV editor automatically.',
