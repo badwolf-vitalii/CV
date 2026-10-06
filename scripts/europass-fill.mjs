@@ -9,6 +9,7 @@ import { loadCvData } from './read-cv-data.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = path.join(root, '.europass-browser-profile');
 const debugDir = path.join(root, '.europass-debug');
+const outputDir = path.join(root, 'output');
 const lang = (process.env.EUROPASS_LANG || 'en').toLowerCase() === 'it' ? 'it' : 'en';
 const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=${lang}`;
 const data = loadCvData(root);
@@ -1862,6 +1863,28 @@ async function fillProjects(page) {
   }
 }
 
+function attachDownloadHandler(page) {
+  page.on('download', async (download) => {
+    try {
+      fs.mkdirSync(outputDir, { recursive: true });
+
+      const suggestedName = download.suggestedFilename() || 'Europass-CV.pdf';
+      const targetPath = path.join(outputDir, suggestedName);
+
+      await download.saveAs(targetPath);
+      console.log(`\nDownloaded file saved to: ${targetPath}`);
+    } catch (error) {
+      console.error(`\nCould not save downloaded file: ${error?.message || error}`);
+    }
+  });
+}
+
+async function returnToEditor(page) {
+  console.log('Returning to the Europass CV editor...');
+  await page.goto(editorUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(250);
+}
+
 async function saveDebug(page, reason) {
   fs.mkdirSync(debugDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1882,11 +1905,22 @@ try {
     headless: false,
     viewport: null,
     chromiumSandbox: true,
+    acceptDownloads: true,
     args: ['--start-maximized'],
+  });
+
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  context.on('page', (newPage) => {
+    attachDownloadHandler(newPage);
   });
 
   const pages = context.pages();
   const page = pages[0] ?? await context.newPage();
+  for (const existingPage of context.pages()) {
+    attachDownloadHandler(existingPage);
+  }
+
   page.setDefaultTimeout(8000);
   await page.goto(editorUrl, { waitUntil: 'domcontentloaded' });
 
@@ -1894,10 +1928,13 @@ try {
   console.log('The browser profile is stored locally in .europass-browser-profile and is ignored by Git.');
   console.log('No password or EU Login credential is read by the script.');
   console.log(`CV data loaded from cv.typ and personal.yaml for ${data.name}.`);
+  console.log(`Browser downloads will be saved to: ${outputDir}`);
 
   await pressEnter(
-    'Log in if Europass asks you to. Create/open a blank CV and stay on the content-editing step. The script will fill fields from there.',
+    'Log in if Europass asks you to. After login, you can stay on whatever page Europass opens; the script will return to the CV editor automatically.',
   );
+
+  await returnToEditor(page);
 
   await fillPersonal(page);
   await fillWork(page);
@@ -1908,7 +1945,8 @@ try {
 
   console.log('\nAutomatic filling pass completed.');
   console.log('Review the CV in Europass, choose the official template, and let Europass generate the PDF.');
-  await pressEnter('Keep the browser open for review. Press Enter here only when you are finished.');
+  console.log(`Any downloaded files will be copied to: ${outputDir}`);
+  await pressEnter('Keep the browser open for review. Press Enter here only when you are finished and your download has completed.');
 } catch (error) {
   const page = context?.pages()?.[0];
   if (page) await saveDebug(page, error?.stack || error?.message || String(error));
