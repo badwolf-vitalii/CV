@@ -376,7 +376,6 @@ async function selectPrimeNgText(page, control, values) {
     if (option) {
       await option.click({ force: true });
       await page.waitForTimeout(150);
-      return true;
     } else {
       // Virtualised lists may not expose the option node until keyboard
       // navigation. After filtering, the first real result is the target.
@@ -390,14 +389,17 @@ async function selectPrimeNgText(page, control, values) {
       await page.waitForTimeout(200);
     }
 
-    const selectedState = [
-      normalize(await control.textContent().catch(() => '')),
-      normalize(await control.inputValue().catch(() => '')),
-      normalize(await control.getAttribute('value').catch(() => '')),
-      normalize(await control.getAttribute('aria-label').catch(() => '')),
-    ].join(' ').toLowerCase();
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const selectedState = [
+        normalize(await control.textContent().catch(() => '')),
+        normalize(await control.inputValue().catch(() => '')),
+        normalize(await control.getAttribute('value').catch(() => '')),
+        normalize(await control.getAttribute('aria-label').catch(() => '')),
+      ].join(' ').toLowerCase();
 
-    if (selectedState.includes(String(value).toLowerCase())) return true;
+      if (selectedState.includes(String(value).toLowerCase())) return true;
+      await page.waitForTimeout(100);
+    }
 
     await closeOpenOverlays(page);
   }
@@ -1183,6 +1185,70 @@ async function languageEntryScope(scope, index) {
   return scope;
 }
 
+async function visibleChoiceControls(scope) {
+  const controls = scope.locator('select, [role="combobox"]');
+  const count = await controls.count();
+  const result = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const control = controls.nth(i);
+    if (await visible(control)) result.push(control);
+  }
+
+  return result;
+}
+
+async function selectLanguageSkillLevels(page, entryScope, item) {
+  const skills = [
+    ['Listening', item.skills?.listening || item.level],
+    ['Reading', item.skills?.reading || item.level],
+    ['Spoken interaction', item.skills?.spokenInteraction || item.level],
+    ['Spoken production', item.skills?.spokenProduction || item.level],
+    ['Writing', item.skills?.writing || item.level],
+  ];
+
+  const controls = await visibleChoiceControls(entryScope);
+
+  // In the Europass language-entry form the language itself is an autocomplete
+  // text input; the five visible choice controls are exactly the CEFR fields.
+  if (controls.length >= 5) {
+    for (let i = 0; i < skills.length; i += 1) {
+      const [label, level] = skills[i];
+      console.log(`    - ${label}: ${level}`);
+
+      const selected = await selectPrimeNgText(page, controls[i], [level]);
+      if (!selected) {
+        console.log(`      ! Could not select ${label} level: ${level}`);
+      }
+    }
+    return;
+  }
+
+  // Fallback for a future Europass DOM change: resolve each field by label.
+  for (const [label, level] of skills) {
+    console.log(`    - ${label}: ${level}`);
+    const aliases = {
+      Listening: ['Listening', 'Ascolto'],
+      Reading: ['Reading', 'Lettura'],
+      'Spoken interaction': ['Spoken interaction', 'Interazione orale'],
+      'Spoken production': ['Spoken production', 'Produzione orale'],
+      Writing: ['Writing', 'Scrittura'],
+    }[label];
+
+    const selected = await selectLabeledChoiceAt(
+      page,
+      entryScope,
+      aliases,
+      0,
+      [level],
+    );
+
+    if (!selected) {
+      console.log(`      ! Could not select ${label} level: ${level}`);
+    }
+  }
+}
+
 async function openLanguageSkillsForm(page) {
   let scope = await languageSectionScope(page);
   if (scope) return scope;
@@ -1267,30 +1333,7 @@ async function fillLanguages(page) {
     await page.waitForTimeout(250);
 
     const entryScope = await languageEntryScope(languageScope, index);
-    const skillLevels = [
-      { key: 'listening', labels: ['Listening', 'Ascolto'] },
-      { key: 'reading', labels: ['Reading', 'Lettura'] },
-      { key: 'spokenInteraction', labels: ['Spoken interaction', 'Interazione orale'] },
-      { key: 'spokenProduction', labels: ['Spoken production', 'Produzione orale'] },
-      { key: 'writing', labels: ['Writing', 'Scrittura'] },
-    ];
-
-    for (const skill of skillLevels) {
-      const level = item.skills?.[skill.key] || item.level;
-      console.log(`    - ${skill.labels[0]}: ${level}`);
-
-      const levelSelected = await selectLabeledChoiceAt(
-        page,
-        entryScope,
-        skill.labels,
-        0,
-        [level],
-      );
-
-      if (!levelSelected) {
-        console.log(`      ! Could not select ${skill.labels[0]} level: ${level}`);
-      }
-    }
+    await selectLanguageSkillLevels(page, entryScope, item);
   }
 
   if (!(await clickSave(page))) {
