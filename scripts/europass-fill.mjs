@@ -113,6 +113,63 @@ async function firstVisibleCandidate(locator, predicate = null) {
   return null;
 }
 
+async function dismissAutocomplete(page, field = null) {
+  if (field) {
+    await field.press('Escape', { timeout: 1000 }).catch(() => {});
+    await field.evaluate((el) => el.blur()).catch(() => {});
+  }
+
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(100);
+
+  let overlays = page.locator('.p-autocomplete-overlay:visible');
+  if (await overlays.count()) {
+    await page.locator('body').click({
+      position: { x: 8, y: 8 },
+      force: true,
+      timeout: 1000,
+    }).catch(() => {});
+    await page.waitForTimeout(120);
+  }
+
+  overlays = page.locator('.p-autocomplete-overlay:visible');
+  if (await overlays.count()) {
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      document.body.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true,
+        clientX: 8,
+        clientY: 8,
+      }));
+      document.body.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        clientX: 8,
+        clientY: 8,
+      }));
+      document.body.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        clientX: 8,
+        clientY: 8,
+      }));
+    }).catch(() => {});
+    await page.waitForTimeout(150);
+  }
+}
+
+async function fillFreeText(page, field, value) {
+  await field.fill(String(value));
+  const insideAutocomplete = await field.locator(
+    'xpath=ancestor::*[contains(@class,"p-autocomplete")][1]',
+  ).count();
+
+  if (insideAutocomplete) {
+    await dismissAutocomplete(page, field);
+  } else {
+    await field.press('Escape', { timeout: 1000 }).catch(() => {});
+  }
+}
+
 async function fieldByLabel(scope, labels, { textEntryOnly = false } = {}) {
   const predicate = textEntryOnly ? isTextEntry : null;
 
@@ -181,7 +238,7 @@ async function fieldByLabel(scope, labels, { textEntryOnly = false } = {}) {
   return null;
 }
 
-async function fillAny(scope, labels, value, { optional = false } = {}) {
+async function fillAny(scope, labels, value, { optional = false, page = null } = {}) {
   if (value === undefined || value === null || normalize(value) === '') return false;
   const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
   if (!field) {
@@ -201,8 +258,12 @@ async function fillAny(scope, labels, value, { optional = false } = {}) {
     await field.click();
     await field.fill(String(value));
   } else {
-    await field.fill(String(value));
-    await field.press('Escape').catch(() => {});
+    if (page) {
+      await fillFreeText(page, field, value);
+    } else {
+      await field.fill(String(value));
+      await field.press('Escape', { timeout: 1000 }).catch(() => {});
+    }
   }
   return true;
 }
@@ -262,9 +323,10 @@ async function selectPrimeNgText(page, control, values) {
 
   const candidates = Array.isArray(values) ? values : [values];
 
+  await dismissAutocomplete(page);
   await closeOpenOverlays(page);
   await control.scrollIntoViewIfNeeded().catch(() => {});
-  await control.click();
+  await control.click({ force: true, timeout: 3000 });
   await page.waitForTimeout(120);
 
   const overlay = await lastVisibleOverlay(page);
@@ -579,10 +641,32 @@ async function fillWork(page) {
     console.log(`  ${index + 1}. ${job.title} - ${job.company}`);
     await openWorkForm(page, job);
     const scope = await workFormScope(page);
-    await fillAny(scope, ['Job title', 'Occupation or position held', 'Position', 'Titolo professionale', 'Posizione ricoperta'], job.title);
-    await fillAny(scope, ['Employer', 'Employer name', 'Organisation', 'Company', 'Datore di lavoro', 'Nome del datore di lavoro', 'Organizzazione'], job.company);
-    await fillAny(scope, ['City', 'Town', 'Città', 'Comune'], job.location.city, { optional: true });
-    await closeOpenOverlays(page);
+    console.log('     - Job title');
+    await fillAny(
+      scope,
+      ['Job title', 'Occupation or position held', 'Position', 'Titolo professionale', 'Posizione ricoperta'],
+      job.title,
+      { page },
+    );
+
+    console.log('     - Employer');
+    await fillAny(
+      scope,
+      ['Employer', 'Employer name', 'Organisation', 'Company', 'Datore di lavoro', 'Nome del datore di lavoro', 'Organizzazione'],
+      job.company,
+      { page },
+    );
+
+    console.log('     - City');
+    await fillAny(
+      scope,
+      ['City', 'Town', 'Città', 'Comune'],
+      job.location.city,
+      { optional: true, page },
+    );
+
+    await dismissAutocomplete(page);
+    console.log('     - Country');
     await selectCountry(page, scope, job.location.country, { optional: true });
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], job.start, { optional: true });
     if (job.end) {
@@ -594,8 +678,9 @@ async function fillWork(page) {
       scope,
       ['Main activities and responsibilities', 'Description', 'Activities', 'Principali attività e responsabilità', 'Descrizione'],
       job.bullets.map((x) => `• ${x}`).join('\n'),
-      { optional: true },
+      { optional: true, page },
     );
+    await dismissAutocomplete(page);
     if (!(await clickSave(page))) {
       await pressEnter('Save this work-experience entry in Europass, then return here.');
     }
@@ -721,8 +806,18 @@ async function fillEducation(page) {
       console.log(`  ! Education form was not detected for: ${item.qualification}. Skipping this entry.`);
       continue;
     }
-    await fillAny(scope, ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'], item.qualification);
-    await fillAny(scope, ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'], item.institution);
+    await fillAny(
+      scope,
+      ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
+      item.qualification,
+      { page },
+    );
+    await fillAny(
+      scope,
+      ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'],
+      item.institution,
+      { page },
+    );
     await selectCountry(page, scope, item.country, { optional: true });
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], item.start, { optional: true });
     await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], item.end, { optional: true });
@@ -991,6 +1086,7 @@ try {
 
   const pages = context.pages();
   const page = pages[0] ?? await context.newPage();
+  page.setDefaultTimeout(8000);
   await page.goto(editorUrl, { waitUntil: 'domcontentloaded' });
 
   console.log('Europass automation started in Microsoft Edge.');
