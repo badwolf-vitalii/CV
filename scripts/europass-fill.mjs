@@ -200,7 +200,31 @@ async function fillAny(scope, labels, value, { optional = false } = {}) {
   return true;
 }
 
-async function fillPhoneNumber(page, scope, value) {
+async function selectNativeCode(scope, selector, code, fallbackLabels = []) {
+  const field = scope.locator(selector).first();
+  if (!(await visible(field))) return false;
+
+  const options = await field.locator('option').evaluateAll((items) =>
+    items.map((option) => ({
+      value: option.value,
+      label: (option.textContent || '').trim(),
+    })),
+  );
+
+  const normalizedCode = String(code).toLowerCase();
+  const match = options.find((option) =>
+    option.value.toLowerCase().includes(normalizedCode),
+  ) || options.find((option) =>
+    fallbackLabels.some((label) => option.label.toLowerCase() === label.toLowerCase()),
+  );
+
+  if (!match) return false;
+  await field.selectOption(match.value);
+  return true;
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\async function fillPhoneNumber(page, scope, value) {
   if (!value) return false;
 
   const match = String(value).trim().match(/^(\+\d{1,3})\s*(.*)$/);
@@ -238,6 +262,322 @@ async function fillPhoneNumber(page, scope, value) {
     valueForInput,
     { optional: true },
   );
+}
+
+');
+}
+
+async function selectPrimeNgText(page, control, values) {
+  if (!(await visible(control))) return false;
+
+  const candidates = Array.isArray(values) ? values : [values];
+  await control.click();
+
+  const filter = await firstVisibleCandidate(
+    page.locator(
+      '.p-select-overlay input, .p-dropdown-panel input, input.p-select-filter, input[role="searchbox"]',
+    ),
+  );
+
+  for (const value of candidates) {
+    if (filter) {
+      await filter.fill(String(value));
+      await page.waitForTimeout(150);
+    }
+
+    const exactOption = page.getByRole('option', {
+      name: new RegExp(`^\\s*${escapeRegex(value)}\\s*import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import readline from 'node:readline/promises';
+import process from 'node:process';
+import { chromium } from 'playwright-core';
+import { loadCvData } from './read-cv-data.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const profileDir = path.join(root, '.europass-browser-profile');
+const debugDir = path.join(root, '.europass-debug');
+const lang = (process.env.EUROPASS_LANG || 'en').toLowerCase() === 'it' ? 'it' : 'en';
+const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=${lang}`;
+const data = loadCvData(root);
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+const T = {
+  en: {
+    continue: ['Continue', 'Next'],
+    save: ['Save', 'Add', 'Done'],
+    about: ['About me', 'About myself', 'Personal statement'],
+    workSection: ['Work experience'],
+    addWork: ['Add work experience', 'Add new work experience'],
+    educationSection: ['Education and training', 'Education'],
+    addEducation: ['Add education and training', 'Add education'],
+    languageSection: ['Language skills', 'Languages'],
+    addLanguage: ['Add language', 'Add a language'],
+    projectSection: ['Projects'],
+    addProject: ['Add project', 'Add a project'],
+    digitalSection: ['Digital skills', 'Skills'],
+  },
+  it: {
+    continue: ['Continua', 'Avanti'],
+    save: ['Salva', 'Aggiungi', 'Fatto'],
+    about: ['Qualcosa su di me', 'Su di me', 'Presentazione personale'],
+    workSection: ['Esperienza lavorativa', 'Esperienze lavorative'],
+    addWork: ['Aggiungi esperienza lavorativa', 'Aggiungi una esperienza lavorativa'],
+    educationSection: ['Istruzione e formazione', 'Formazione'],
+    addEducation: ['Aggiungi istruzione e formazione', 'Aggiungi formazione'],
+    languageSection: ['Competenze linguistiche', 'Lingue'],
+    addLanguage: ['Aggiungi lingua', 'Aggiungi una lingua'],
+    projectSection: ['Progetti'],
+    addProject: ['Aggiungi progetto', 'Aggiungi un progetto'],
+    digitalSection: ['Competenze digitali', 'Competenze'],
+  },
+}[lang];
+
+function normalize(text) {
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+async function pressEnter(message) {
+  await rl.question(`\n${message}\nPress Enter when ready... `);
+}
+
+async function visible(locator) {
+  try {
+    return await locator.first().isVisible({ timeout: 800 });
+  } catch {
+    return false;
+  }
+}
+
+async function clickText(page, candidates) {
+  for (const candidate of candidates) {
+    for (const role of ['button', 'link']) {
+      const locator = page.getByRole(role, { name: candidate, exact: false });
+      if (await visible(locator)) {
+        await locator.first().click();
+        return true;
+      }
+    }
+    const text = page.getByText(candidate, { exact: false });
+    if (await visible(text)) {
+      await text.first().click();
+      return true;
+    }
+  }
+  return false;
+}
+
+async function currentScope(page) {
+  const dialogs = page.getByRole('dialog');
+  const count = await dialogs.count();
+  for (let i = count - 1; i >= 0; i -= 1) {
+    if (await visible(dialogs.nth(i))) return dialogs.nth(i);
+  }
+  return page;
+}
+
+async function isTextEntry(locator) {
+  try {
+    const tag = await locator.evaluate((el) => el.tagName.toLowerCase());
+    const type = ((await locator.getAttribute('type')) || '').toLowerCase();
+    const contentEditable = await locator.getAttribute('contenteditable');
+
+    if (tag === 'textarea' || contentEditable === 'true') return true;
+    if (tag !== 'input') return false;
+
+    return !['checkbox', 'radio', 'file', 'button', 'submit', 'reset', 'hidden'].includes(type);
+  } catch {
+    return false;
+  }
+}
+
+async function firstVisibleCandidate(locator, predicate = null) {
+  const count = Math.min(await locator.count(), 20);
+  for (let i = 0; i < count; i += 1) {
+    const candidate = locator.nth(i);
+    if (!(await visible(candidate))) continue;
+    if (!predicate || await predicate(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function fieldByLabel(scope, labels, { textEntryOnly = false } = {}) {
+  const predicate = textEntryOnly ? isTextEntry : null;
+
+  // Prefer exact accessible labels. Partial matching can accidentally resolve
+  // "Phone" to the phone-prefix combobox instead of the actual number input.
+  for (const exact of [true, false]) {
+    for (const label of labels) {
+      const candidate = await firstVisibleCandidate(
+        scope.getByLabel(label, { exact }),
+        predicate,
+      );
+      if (candidate) return candidate;
+    }
+  }
+
+  for (const label of labels) {
+    const labelNodes = scope.locator('label').filter({ hasText: label });
+    const labelCount = Math.min(await labelNodes.count(), 20);
+    for (let i = 0; i < labelCount; i += 1) {
+      const labelNode = labelNodes.nth(i);
+      if (!(await visible(labelNode))) continue;
+
+      const forId = await labelNode.getAttribute('for');
+      if (forId) {
+        const escapedId = forId.replaceAll('"', '\\"');
+        const candidate = await firstVisibleCandidate(
+          scope.locator(`[id="${escapedId}"]`),
+          predicate,
+        );
+        if (candidate) return candidate;
+      }
+
+      const nearby = labelNode.locator(
+        'xpath=following::*[self::input or self::textarea or @contenteditable="true"][1]',
+      );
+      const candidate = await firstVisibleCandidate(nearby, predicate);
+      if (candidate) return candidate;
+    }
+  }
+
+  // Europass sometimes renders a group heading as plain text rather than a
+  // <label>. In that case the first text-entry control after the heading is
+  // still a much safer fallback than a partially matching combobox.
+  if (textEntryOnly) {
+    for (const label of labels) {
+      const textNodes = scope.getByText(label, { exact: true });
+      const count = Math.min(await textNodes.count(), 20);
+      for (let i = 0; i < count; i += 1) {
+        const textNode = textNodes.nth(i);
+        if (!(await visible(textNode))) continue;
+        const nearby = textNode.locator(
+          'xpath=following::*[self::input or self::textarea or @contenteditable="true"][1]',
+        );
+        const candidate = await firstVisibleCandidate(nearby, isTextEntry);
+        if (candidate) return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function fillAny(scope, labels, value, { optional = false } = {}) {
+  if (value === undefined || value === null || normalize(value) === '') return false;
+  const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
+  if (!field) {
+    if (!optional) console.log(`  ! Field not found: ${labels[0]}`);
+    return false;
+  }
+
+  const tag = await field.evaluate((el) => el.tagName.toLowerCase());
+  const type = (await field.getAttribute('type')) || '';
+  if (tag === 'select') {
+    await field.selectOption({ label: String(value) }).catch(async () => {
+      await field.selectOption(String(value));
+    });
+  } else if (type === 'checkbox') {
+    if (value) await field.check(); else await field.uncheck();
+  } else if ((await field.getAttribute('contenteditable')) === 'true') {
+    await field.click();
+    await field.fill(String(value));
+  } else {
+    await field.fill(String(value));
+  }
+  return true;
+}
+
+, 'i'),
+    });
+    const option = await firstVisibleCandidate(exactOption);
+    if (option) {
+      await option.click();
+      return true;
+    }
+
+    const fallback = await firstVisibleCandidate(
+      page.locator('li[role="option"], .p-select-option, .p-dropdown-item')
+        .filter({ hasText: String(value) }),
+    );
+    if (fallback) {
+      await fallback.click();
+      return true;
+    }
+  }
+
+  await page.keyboard.press('Escape').catch(() => {});
+  return false;
+}
+
+async function fillPhoneNumber(page, scope, value) {
+  if (!value) return false;
+
+  const match = String(value).trim().match(/^(\+\d{1,3})\s*(.*)$/);
+  const prefix = match?.[1] || '';
+  const localNumber = (match?.[2] || String(value)).replace(/\D/g, '');
+
+  await selectNativeCode(
+    scope,
+    '#perso-info-phone-type-input-0',
+    'mobile',
+    ['Mobile', 'Cellulare'],
+  );
+
+  if (prefix) {
+    const prefixControl = scope.locator(
+      '#perso-info-phone-form-0-prefix [role="combobox"], [role="combobox"][aria-label*="phone prefix" i]',
+    ).first();
+
+    if (await visible(prefixControl)) {
+      const selected = await selectPrimeNgText(page, prefixControl, prefix);
+      if (!selected) {
+        console.log(`  ! Could not select phone prefix ${prefix}.`);
+      }
+    }
+  }
+
+  const numberField = scope.locator('#perso-info-phone-form-0').first();
+  if (await visible(numberField)) {
+    await numberField.fill(localNumber);
+    return true;
+  }
+
+  return fillAny(
+    scope,
+    ['Phone number', 'Telefono'],
+    localNumber,
+    { optional: true },
+  );
+}
+
+async function fillAddress(page, scope) {
+  const location = data.contact.location;
+  if (!location?.city && !location?.country) return;
+
+  await selectNativeCode(
+    scope,
+    '#perso-info-address-type-0',
+    'home',
+    ['Home', 'Casa'],
+  );
+
+  const cityField = scope.locator('#perso-info-city-0').first();
+  if (location.city && await visible(cityField)) {
+    await cityField.fill(location.city);
+  }
+
+  const countryControl = scope.locator('#perso-info-country-0').first();
+  if (location.country && await visible(countryControl)) {
+    const countryNames = location.country.toLowerCase() === 'italy'
+      ? ['Italy', 'Italia']
+      : [location.country];
+
+    const selected = await selectPrimeNgText(page, countryControl, countryNames);
+    if (!selected) {
+      console.log(`  ! Could not select address country: ${location.country}`);
+    }
+  }
 }
 
 async function selectOrFill(scope, labels, value, { optional = false } = {}) {
@@ -337,9 +677,7 @@ async function fillPersonal(page) {
 
   await fillAny(scope, ['Email', 'Email address', 'Indirizzo e-mail'], data.contact.email, { optional: true });
   await fillPhoneNumber(page, scope, data.contact.phone);
-  await fillAny(scope, ['City', 'Town', 'Città', 'Comune'], data.contact.location.city, { optional: true });
-  await fillAny(scope, ['Region', 'Province', 'Regione', 'Provincia'], data.contact.location.region, { optional: true });
-  await selectOrFill(scope, ['Country', 'Paese'], data.contact.location.country, { optional: true });
+  await fillAddress(page, scope);
   await fillAny(scope, ['Website', 'LinkedIn', 'Sito web'], data.contact.linkedin, { optional: true });
 
   if (data.contact.showPhoto && data.contact.photoPath && fs.existsSync(data.contact.photoPath)) {
