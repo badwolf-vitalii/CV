@@ -1,4 +1,4 @@
-name: Privacy check
+name: CV validation
 
 on:
   push:
@@ -29,3 +29,14 @@ jobs:
             echo "Generated PDF files must not be committed."
             exit 1
           fi
+
+      - name: Install Typst
+        uses: typst-community/setup-typst@v5
+        with:
+          typst-version: 0.15.1
+
+      - name: Validate CV build
+        shell: bash
+        run: |
+          cp personal.example.yaml personal.yaml
+          typst compile cv.typ /tmp/Vitalii_Hanych_CV.pdf
