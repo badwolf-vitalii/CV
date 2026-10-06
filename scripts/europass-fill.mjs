@@ -647,6 +647,7 @@ async function checkAny(scope, labels, { optional = true } = {}) {
 
 async function clickSave(page) {
   const scope = await currentScope(page);
+
   for (const candidate of T.save) {
     const button = scope.getByRole('button', { name: candidate, exact: false }).first();
     if (!(await visible(button))) continue;
@@ -654,10 +655,16 @@ async function clickSave(page) {
     const disabled = await button.isDisabled().catch(() => false);
     if (disabled) return false;
 
-    await button.click({ timeout: 3000 });
-    await page.waitForTimeout(700);
+    await button.click({ timeout: 1500 });
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (!(await button.isVisible().catch(() => false))) return true;
+      await page.waitForTimeout(50);
+    }
+
     return true;
   }
+
   return false;
 }
 
@@ -899,7 +906,7 @@ async function ensureSection(page, titles, sectionName, fallbackValue = null) {
 
     console.log(`  - Adding ${sectionName} section`);
     await addSectionButton.click();
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(80);
   } catch {
     console.log(`  ! Add section button was not found for ${sectionName}.`);
     return null;
@@ -920,37 +927,50 @@ async function openWorkForm(page, job) {
 
   if (editButton) {
     await editButton.click();
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(100);
     return await workFormScope(page);
   }
 
-  let scope = await workFormScope(page);
-  if (scope) return scope;
-
-  const section = await ensureSection(
-    page,
-    T.workSection,
-    T.workSection[0],
-  );
-
-  scope = await workFormScope(page);
-  if (scope) return scope;
-
-  const addButton = page.locator('#section-add-record-workexperience').first();
-  if (await visible(addButton)) {
-    await addButton.click();
-    await page.waitForTimeout(180);
-    return await workFormScope(page);
-  }
+  let section = await sectionCard(page, T.workSection);
 
   if (section) {
+    const addButton = page.locator('#section-add-record-workexperience').first();
+
+    if (await visible(addButton)) {
+      await addButton.click();
+      await page.waitForTimeout(100);
+      return await workFormScope(page);
+    }
+
     const sectionAddButton = section.getByRole('button', {
       name: /Add new|Add work experience|Aggiungi/i,
     }).first();
 
     if (await visible(sectionAddButton)) {
       await sectionAddButton.click();
-      await page.waitForTimeout(180);
+      await page.waitForTimeout(100);
+      return await workFormScope(page);
+    }
+  }
+
+  section = await ensureSection(
+    page,
+    T.workSection,
+    T.workSection[0],
+  );
+
+  // Creating Work experience normally opens the first record form immediately.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const scope = await workFormScope(page);
+    if (scope) return scope;
+    await page.waitForTimeout(50);
+  }
+
+  if (section) {
+    const addButton = page.locator('#section-add-record-workexperience').first();
+    if (await visible(addButton)) {
+      await addButton.click();
+      await page.waitForTimeout(100);
       return await workFormScope(page);
     }
   }
@@ -1084,7 +1104,7 @@ async function existingRecordEditButton(page, recordText, sectionNames) {
 }
 
 async function waitForEducationForm(page) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     const qualification = await fieldByLabel(
       page,
       ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
@@ -1097,7 +1117,7 @@ async function waitForEducationForm(page) {
     );
 
     if (qualification && organisation) return await currentScope(page);
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(50);
   }
 
   return null;
@@ -1112,20 +1132,42 @@ async function openEducationForm(page, item) {
 
   if (editButton) {
     await editButton.click();
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(100);
     return await waitForEducationForm(page);
   }
 
-  let scope = await waitForEducationForm(page);
-  if (scope) return scope;
+  let section = await sectionCard(page, T.educationSection);
 
-  const section = await ensureSection(
+  if (section) {
+    const addButton = section.getByRole('button', {
+      name: /Add new|Add education|Aggiungi/i,
+    }).first();
+
+    if (await visible(addButton)) {
+      await addButton.click();
+      await page.waitForTimeout(100);
+      return await waitForEducationForm(page);
+    }
+
+    const ariaAddButton = section.locator(
+      'button[aria-label*="Add new" i], button[aria-label*="Aggiungi" i]',
+    ).first();
+
+    if (await visible(ariaAddButton)) {
+      await ariaAddButton.click();
+      await page.waitForTimeout(100);
+      return await waitForEducationForm(page);
+    }
+  }
+
+  section = await ensureSection(
     page,
     T.educationSection,
     T.educationSection[0],
   );
 
-  scope = await waitForEducationForm(page);
+  // Creating Education and training normally opens the first record form.
+  let scope = await waitForEducationForm(page);
   if (scope) return scope;
 
   if (section) {
@@ -1135,18 +1177,7 @@ async function openEducationForm(page, item) {
 
     if (await visible(addButton)) {
       await addButton.click();
-      await page.waitForTimeout(180);
-      scope = await waitForEducationForm(page);
-      if (scope) return scope;
-    }
-
-    const ariaAddButton = section.locator(
-      'button[aria-label*="Add new" i], button[aria-label*="Aggiungi" i]',
-    ).first();
-
-    if (await visible(ariaAddButton)) {
-      await ariaAddButton.click();
-      await page.waitForTimeout(180);
+      await page.waitForTimeout(100);
       scope = await waitForEducationForm(page);
       if (scope) return scope;
     }
