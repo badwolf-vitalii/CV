@@ -14,6 +14,7 @@ const lang = (process.env.EUROPASS_LANG || 'en').toLowerCase() === 'it' ? 'it' :
 const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=${lang}`;
 const data = loadCvData(root);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const pendingDownloadSaves = new Set();
 
 const T = {
   en: {
@@ -1864,19 +1865,35 @@ async function fillProjects(page) {
 }
 
 function attachDownloadHandler(page) {
-  page.on('download', async (download) => {
-    try {
-      fs.mkdirSync(outputDir, { recursive: true });
+  page.on('download', (download) => {
+    const saveTask = (async () => {
+      try {
+        fs.mkdirSync(outputDir, { recursive: true });
 
-      const suggestedName = download.suggestedFilename() || 'Europass-CV.pdf';
-      const targetPath = path.join(outputDir, suggestedName);
+        const suggestedName = download.suggestedFilename() || 'Europass-CV.pdf';
+        const targetPath = path.join(outputDir, suggestedName);
 
-      await download.saveAs(targetPath);
-      console.log(`\nDownloaded file saved to: ${targetPath}`);
-    } catch (error) {
-      console.error(`\nCould not save downloaded file: ${error?.message || error}`);
-    }
+        console.log(`\nDownload started: ${suggestedName}`);
+        await download.saveAs(targetPath);
+        console.log(`Downloaded file saved to: ${targetPath}`);
+      } catch (error) {
+        console.error(`\nCould not save downloaded file: ${error?.message || error}`);
+      }
+    })();
+
+    pendingDownloadSaves.add(saveTask);
+    saveTask.finally(() => pendingDownloadSaves.delete(saveTask));
   });
+}
+
+async function waitForPendingDownloads(graceMs = 500) {
+  if (graceMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, graceMs));
+  }
+
+  while (pendingDownloadSaves.size > 0) {
+    await Promise.allSettled([...pendingDownloadSaves]);
+  }
 }
 
 async function returnToEditor(page) {
@@ -1946,13 +1963,17 @@ try {
   console.log('\nAutomatic filling pass completed.');
   console.log('Review the CV in Europass, choose the official template, and let Europass generate the PDF.');
   console.log(`Any downloaded files will be copied to: ${outputDir}`);
-  await pressEnter('Keep the browser open for review. Press Enter here only when you are finished and your download has completed.');
+  await pressEnter(
+    'Download the PDF and wait until this console prints "Downloaded file saved to: ...". Then press Enter here when you are finished.',
+  );
+  await waitForPendingDownloads(700);
 } catch (error) {
   const page = context?.pages()?.[0];
   if (page) await saveDebug(page, error?.stack || error?.message || String(error));
   else console.error(error);
   process.exitCode = 1;
 } finally {
+  await waitForPendingDownloads(300).catch(() => {});
   await context?.close().catch(() => {});
   rl.close();
 }
