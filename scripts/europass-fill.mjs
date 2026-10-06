@@ -661,6 +661,72 @@ async function ensureFormOpen(page, autoButtons, manualMessage) {
   await pressEnter(manualMessage);
 }
 
+async function uploadProfilePhoto(page) {
+  if (!data.contact.showPhoto || !data.contact.photoPath) return true;
+
+  if (!fs.existsSync(data.contact.photoPath)) {
+    console.log(`  ! Photo file not found: ${data.contact.photoPath}`);
+    return false;
+  }
+
+  const editButton = page.locator('#edit-profile-picture').first();
+  if (!(await visible(editButton))) {
+    console.log('  ! Profile picture Edit button was not found.');
+    return false;
+  }
+
+  console.log('  - Opening profile picture editor');
+  await editButton.click();
+  await page.waitForTimeout(300);
+
+  const dialog = page.locator('#editPictureModal').first();
+  try {
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+  } catch {
+    console.log('  ! Profile picture dialog did not open.');
+    return false;
+  }
+
+  const fileInput = dialog.locator('input[type="file"]').first();
+  try {
+    await fileInput.waitFor({ state: 'attached', timeout: 5000 });
+  } catch {
+    console.log('  ! Photo file input was not found in the profile picture dialog.');
+    return false;
+  }
+
+  console.log(`  - Uploading profile photo: ${path.basename(data.contact.photoPath)}`);
+  await fileInput.setInputFiles(data.contact.photoPath);
+  await page.waitForTimeout(700);
+
+  // Europass may show either a crop/preview step or a direct confirmation.
+  // Keep the click strictly inside the picture dialog so we never hit the
+  // Personal information Save button by accident.
+  for (const name of [
+    /^Save$/i,
+    /^Apply$/i,
+    /^Confirm$/i,
+    /^Done$/i,
+    /^Upload$/i,
+    /^Salva$/i,
+    /^Applica$/i,
+    /^Conferma$/i,
+    /^Fatto$/i,
+    /^Carica$/i,
+  ]) {
+    const button = dialog.getByRole('button', { name }).first();
+    if (await visible(button) && !(await button.isDisabled().catch(() => false))) {
+      await button.click();
+      await page.waitForTimeout(700);
+      console.log('  - Profile photo saved');
+      return true;
+    }
+  }
+
+  console.log('  ! Photo selected, but the final confirmation button was not recognised.');
+  return false;
+}
+
 async function fillPersonal(page) {
   console.log('\n[1/6] Personal information and About me');
   let scope = await currentScope(page);
@@ -689,12 +755,7 @@ async function fillPersonal(page) {
     console.log('  ! About me editor was not found in Personal information.');
   }
 
-  if (data.contact.showPhoto && data.contact.photoPath && fs.existsSync(data.contact.photoPath)) {
-    const fileInput = scope.locator('input[type="file"]').first();
-    if (await visible(fileInput)) {
-      await fileInput.setInputFiles(data.contact.photoPath).catch(() => {});
-    }
-  }
+  await uploadProfilePhoto(page);
 
   if (!(await clickSave(page))) {
     await pressEnter(
