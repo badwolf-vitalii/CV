@@ -22,7 +22,7 @@ const T = {
     workSection: ['Work experience'],
     addWork: ['Add new Work experience', 'Add work experience', 'Add new work experience'],
     educationSection: ['Education and training', 'Education'],
-    addEducation: ['Add education and training', 'Add education'],
+    addEducation: ['Add education and training', 'Add education', 'Add new'],
     languageSection: ['Language skills', 'Languages'],
     addLanguage: ['Add language', 'Add a language'],
     projectSection: ['Projects'],
@@ -36,7 +36,7 @@ const T = {
     workSection: ['Esperienza lavorativa', 'Esperienze lavorative'],
     addWork: ['Aggiungi esperienza lavorativa', 'Aggiungi una esperienza lavorativa'],
     educationSection: ['Istruzione e formazione', 'Formazione'],
-    addEducation: ['Aggiungi istruzione e formazione', 'Aggiungi formazione'],
+    addEducation: ['Aggiungi istruzione e formazione', 'Aggiungi formazione', 'Aggiungi'],
     languageSection: ['Competenze linguistiche', 'Lingue'],
     addLanguage: ['Aggiungi lingua', 'Aggiungi una lingua'],
     projectSection: ['Progetti'],
@@ -538,15 +538,68 @@ async function fillWork(page) {
   }
 }
 
+async function sectionCard(page, titles) {
+  for (const title of titles) {
+    const cards = page.locator('eprofile-section-card').filter({ hasText: title });
+    const count = await cards.count();
+    for (let i = 0; i < count; i += 1) {
+      const card = cards.nth(i);
+      if (await visible(card)) return card;
+    }
+  }
+  return null;
+}
+
+async function openEducationForm(page, item) {
+  for (const text of [item.institution, item.qualification]) {
+    const existing = page.locator('eprofile-section-card').filter({ hasText: text }).first();
+    if (!(await visible(existing))) continue;
+
+    const editButton = existing.locator(
+      'button[aria-label*="Edit the record of the section Education" i], button[aria-label*="Edit the record of the section Istruzione" i]',
+    ).first();
+
+    if (await visible(editButton)) {
+      await editButton.click();
+      await page.waitForTimeout(500);
+      return;
+    }
+  }
+
+  const section = await sectionCard(page, T.educationSection);
+  if (section) {
+    const addButton = section.getByRole('button', { name: /^Add new$|^Aggiungi$/i }).first();
+    if (await visible(addButton)) {
+      await addButton.click();
+      await page.waitForTimeout(500);
+      return;
+    }
+
+    const ariaAddButton = section.locator(
+      'button[aria-label*="Add new" i], button[aria-label*="Aggiungi" i]',
+    ).first();
+    if (await visible(ariaAddButton)) {
+      await ariaAddButton.click();
+      await page.waitForTimeout(500);
+      return;
+    }
+  }
+
+  if (await clickText(page, T.addEducation)) {
+    await page.waitForTimeout(500);
+    return;
+  }
+
+  await pressEnter(
+    `Open "${T.educationSection[0]}" and choose Add for: ${item.qualification}.`,
+  );
+}
+
 async function fillEducation(page) {
   console.log(`\n[3/6] Education (${data.education.length} entries)`);
   for (const [index, item] of data.education.entries()) {
     console.log(`  ${index + 1}. ${item.qualification}`);
-    await ensureFormOpen(
-      page,
-      T.addEducation,
-      `Open "${T.educationSection[0]}" and choose Add for: ${item.qualification}.`,
-    );
+    await openEducationForm(page, item);
     const scope = await currentScope(page);
     await fillAny(scope, ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'], item.qualification);
     await fillAny(scope, ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'], item.institution);
@@ -594,6 +647,37 @@ async function exactLabeledControl(scope, labels, index = 0) {
     }
   }
 
+  for (const label of labels) {
+    const textNodes = scope.getByText(label, { exact: true });
+    const count = await textNodes.count();
+    let visibleIndex = 0;
+
+    for (let i = 0; i < count; i += 1) {
+      const textNode = textNodes.nth(i);
+      if (!(await visible(textNode))) continue;
+
+      const nearby = textNode.locator(
+        'xpath=following::*[self::select or @role="combobox"][1]',
+      );
+      const control = await firstVisibleCandidate(nearby);
+      if (!control) continue;
+
+      if (visibleIndex === index) return control;
+      visibleIndex += 1;
+    }
+  }
+
+  return null;
+}
+
+async function languageSectionScope(page) {
+  const section = await sectionCard(page, T.languageSection);
+  if (!section) return null;
+
+  const motherText = section.getByText(/Mother tongue|Lingua madre/i, { exact: true });
+  const otherText = section.getByText(/Other language|Altra lingua/i, { exact: true });
+
+  if (await visible(motherText) && await visible(otherText)) return section;
   return null;
 }
 
@@ -628,38 +712,35 @@ async function selectLabeledChoiceAt(page, scope, labels, index, values) {
 }
 
 async function openLanguageSkillsForm(page) {
-  const motherTongue = await exactLabeledControl(
-    page,
-    ['Mother tongue', 'Lingua madre'],
-    0,
-  );
-  if (motherTongue) return true;
+  let scope = await languageSectionScope(page);
+  if (scope) return scope;
 
-  const editButton = page.locator(
-    'button[aria-label*="Language skills" i], button[aria-label*="Competenze linguistiche" i]',
-  ).first();
+  const section = await sectionCard(page, T.languageSection);
+  if (section) {
+    const editButton = section.locator(
+      'button[aria-label*="Edit the content of the section Language skills" i], button[aria-label*="Edit the content of the section Competenze linguistiche" i]',
+    ).first();
 
-  if (await visible(editButton)) {
-    await editButton.click();
-    await page.waitForTimeout(500);
-    return true;
+    if (await visible(editButton)) {
+      await editButton.click();
+      await page.waitForTimeout(500);
+      scope = await languageSectionScope(page);
+      if (scope) return scope;
+    }
   }
 
   await pressEnter(
     `Open "${T.languageSection[0]}" so that the Mother tongue and Other language fields are visible.`,
   );
 
-  return Boolean(await exactLabeledControl(
-    page,
-    ['Mother tongue', 'Lingua madre'],
-    0,
-  ));
+  return await languageSectionScope(page);
 }
 
 async function fillLanguages(page) {
   console.log(`\n[4/6] Languages (${data.languages.length} entries)`);
 
-  if (!(await openLanguageSkillsForm(page))) {
+  const languageScope = await openLanguageSkillsForm(page);
+  if (!languageScope) {
     console.log('  ! Language skills form was not detected. Skipping automatic language filling.');
     return;
   }
@@ -671,7 +752,7 @@ async function fillLanguages(page) {
     console.log(`  Mother tongue: ${nativeLanguage.language}`);
     const selected = await selectLabeledChoiceAt(
       page,
-      page,
+      languageScope,
       ['Mother tongue', 'Lingua madre'],
       0,
       languageNames(nativeLanguage.language),
@@ -685,7 +766,7 @@ async function fillLanguages(page) {
     console.log(`  Other language ${index + 1}: ${item.language} - ${item.level}`);
 
     if (index > 0) {
-      const addButton = page.getByRole('button', {
+      const addButton = languageScope.getByRole('button', {
         name: /Add another language|Aggiungi un'altra lingua/i,
       }).first();
 
@@ -700,7 +781,7 @@ async function fillLanguages(page) {
 
     const selected = await selectLabeledChoiceAt(
       page,
-      page,
+      languageScope,
       ['Other language', 'Altra lingua'],
       index,
       languageNames(item.language),
@@ -720,7 +801,7 @@ async function fillLanguages(page) {
       ['Spoken production', 'Produzione orale'],
       ['Writing', 'Scrittura'],
     ]) {
-      await selectLabeledChoiceAt(page, page, labels, index, [item.level]);
+      await selectLabeledChoiceAt(page, languageScope, labels, index, [item.level]);
     }
   }
 
