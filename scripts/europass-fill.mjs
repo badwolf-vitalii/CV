@@ -677,7 +677,6 @@ async function uploadProfilePhoto(page) {
 
   console.log('  - Opening profile picture editor');
   await editButton.click();
-  await page.waitForTimeout(300);
 
   const dialog = page.locator('#editPictureModal').first();
   try {
@@ -687,44 +686,59 @@ async function uploadProfilePhoto(page) {
     return false;
   }
 
-  const fileInput = dialog.locator('input[type="file"]').first();
-  try {
-    await fileInput.waitFor({ state: 'attached', timeout: 5000 });
-  } catch {
-    console.log('  ! Photo file input was not found in the profile picture dialog.');
+  const selectFileButton = dialog.getByRole('button', {
+    name: /Select file|Seleziona file/i,
+  }).first();
+
+  if (!(await visible(selectFileButton))) {
+    console.log('  ! Select file button was not found in the profile picture dialog.');
     return false;
   }
 
-  console.log(`  - Uploading profile photo: ${path.basename(data.contact.photoPath)}`);
-  await fileInput.setInputFiles(data.contact.photoPath);
-  await page.waitForTimeout(700);
+  console.log(`  - Selecting profile photo: ${path.basename(data.contact.photoPath)}`);
 
-  // Europass may show either a crop/preview step or a direct confirmation.
-  // Keep the click strictly inside the picture dialog so we never hit the
-  // Personal information Save button by accident.
-  for (const name of [
-    /^Save$/i,
-    /^Apply$/i,
-    /^Confirm$/i,
-    /^Done$/i,
-    /^Upload$/i,
-    /^Salva$/i,
-    /^Applica$/i,
-    /^Conferma$/i,
-    /^Fatto$/i,
-    /^Carica$/i,
-  ]) {
-    const button = dialog.getByRole('button', { name }).first();
-    if (await visible(button) && !(await button.isDisabled().catch(() => false))) {
-      await button.click();
-      await page.waitForTimeout(700);
-      console.log('  - Profile photo saved');
-      return true;
-    }
+  try {
+    const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
+    await selectFileButton.click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles(data.contact.photoPath);
+  } catch (error) {
+    console.log(`  ! Could not choose the profile photo file: ${error.message}`);
+    return false;
   }
 
-  console.log('  ! Photo selected, but the final confirmation button was not recognised.');
-  return false;
+  const saveButton = dialog.getByRole('button', { name: /^Save$|^Salva$/i }).first();
+
+  try {
+    await saveButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      if (!(await saveButton.isDisabled().catch(() => true))) break;
+      await page.waitForTimeout(100);
+    }
+
+    if (await saveButton.isDisabled().catch(() => true)) {
+      console.log('  ! Profile picture Save button is still disabled after file selection.');
+      return false;
+    }
+  } catch {
+    console.log('  ! Profile picture Save button was not found.');
+    return false;
+  }
+
+  console.log('  - Saving profile photo');
+  await saveButton.click();
+  await page.waitForTimeout(700);
+
+  try {
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+  } catch {
+    console.log('  ! Profile picture dialog did not close after Save.');
+    return false;
+  }
+
+  console.log('  - Profile photo saved');
+  return true;
 }
 
 async function fillPersonal(page) {
