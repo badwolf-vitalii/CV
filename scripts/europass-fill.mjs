@@ -1413,10 +1413,52 @@ async function openLanguageSkillsForm(page) {
   return await languageSectionScope(page);
 }
 
+async function selectEuropassLanguage(page, inputSelector, value) {
+  const input = page.locator(inputSelector).first();
+
+  try {
+    await input.waitFor({ state: 'visible', timeout: 1200 });
+  } catch {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await closeOpenOverlays(page);
+
+    try {
+      await input.click({ force: true, timeout: 600 });
+      await input.fill('');
+      await input.type(String(value), { delay: 12 });
+    } catch {
+      continue;
+    }
+
+    const option = page.locator(
+      '.p-autocomplete-overlay:visible [role="option"], ' +
+      '.p-autocomplete-overlay:visible li, ' +
+      '[role="listbox"]:visible [role="option"], ' +
+      '[role="listbox"]:visible li',
+    ).filter({
+      hasText: new RegExp('^\\s*' + escapeRegex(String(value)) + '\\s*$', 'i'),
+    }).first();
+
+    try {
+      await option.waitFor({ state: 'visible', timeout: 1800 });
+      await option.click({ force: true, timeout: 700 });
+      await page.waitForTimeout(80);
+      return true;
+    } catch {
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+  }
+
+  return false;
+}
+
 async function fillLanguages(page) {
   console.log(`\n[4/6] Languages (${data.languages.length} entries)`);
 
-  let languageScope = await openLanguageSkillsForm(page);
+  const languageScope = await openLanguageSkillsForm(page);
   if (!languageScope) {
     console.log('  ! Language skills form was not detected. Skipping automatic language filling.');
     return;
@@ -1428,19 +1470,11 @@ async function fillLanguages(page) {
   if (nativeLanguage) {
     console.log(`  Mother tongue: ${nativeLanguage.language}`);
 
-    const motherInput = await languageInput(
-      languageScope,
-      lang === 'it' ? 'Lingua madre' : 'Mother tongue',
-      0,
+    const selected = await selectEuropassLanguage(
+      page,
+      '#native-lang-input-0',
+      languageNames(nativeLanguage.language)[0],
     );
-
-    const selected = motherInput
-      ? await selectAutocompleteExact(
-          page,
-          motherInput,
-          languageNames(nativeLanguage.language)[0],
-        )
-      : false;
 
     if (!selected) {
       console.log(`  ! Could not select mother tongue: ${nativeLanguage.language}`);
@@ -1450,44 +1484,48 @@ async function fillLanguages(page) {
   for (const [index, item] of otherLanguages.entries()) {
     console.log(`  Other language ${index + 1}: ${item.language} - ${item.level}`);
 
-    languageScope = await languageSectionScope(page) ?? languageScope;
-
     if (index > 0) {
-      const addButton = languageScope.getByRole('button', {
-        name: /Add another language|Aggiungi un'altra lingua/i,
-      }).first();
+      const addButton = page.locator('#other-lang-add').first();
 
-      if (!(await visible(addButton))) {
+      try {
+        await addButton.waitFor({ state: 'visible', timeout: 1000 });
+      } catch {
         console.log('  ! "Add another language" button was not found.');
         break;
       }
 
-      await addButton.click();
-      await page.waitForTimeout(100);
-      languageScope = await languageSectionScope(page) ?? languageScope;
+      const enabled = await addButton.isEnabled().catch(() => false);
+      if (!enabled) {
+        console.log('  ! "Add another language" is still disabled; the previous language was not accepted by Europass.');
+        break;
+      }
+
+      await addButton.click({ force: true, timeout: 700 });
+
+      try {
+        await page.locator(`#other-lang-input-${index}`).first()
+          .waitFor({ state: 'visible', timeout: 1200 });
+      } catch {
+        console.log(`  ! Europass did not create language row ${index + 1}.`);
+        break;
+      }
     }
 
-    const otherInput = await languageInput(
-      languageScope,
-      lang === 'it' ? 'Altra lingua' : 'Other language',
-      index,
+    const selected = await selectEuropassLanguage(
+      page,
+      `#other-lang-input-${index}`,
+      languageNames(item.language)[0],
     );
-
-    const selected = otherInput
-      ? await selectAutocompleteExact(
-          page,
-          otherInput,
-          languageNames(item.language)[0],
-        )
-      : false;
 
     if (!selected) {
       console.log(`  ! Could not select language: ${item.language}`);
-      continue;
+      break;
     }
 
-    languageScope = await languageSectionScope(page) ?? languageScope;
-    const entryScope = await languageEntryScope(languageScope, index);
+    await page.waitForTimeout(100);
+
+    const refreshedScope = await languageSectionScope(page) ?? languageScope;
+    const entryScope = await languageEntryScope(refreshedScope, index);
     await selectLanguageSkillLevels(page, entryScope, item);
   }
 
