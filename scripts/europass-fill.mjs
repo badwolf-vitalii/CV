@@ -699,55 +699,53 @@ async function uploadProfilePhoto(page) {
   console.log('  - Opening profile picture editor');
   await editButton.click();
 
-  // The <eui-dialog id="editPictureModal"> host itself has no visible box.
-  // Wait for the actual visible controls rendered inside the modal instead.
-  const selectFileButton = page.getByRole('button', {
-    name: /^Select file$|^Seleziona file$/i,
-  }).last();
+  // Europass renders "Select file" as a custom upload control, not as a
+  // normal button. The reliable target is the hidden file input created when
+  // the editor opens.
+  const fileInput = page.locator('input[type="file"]').last();
 
   try {
-    await selectFileButton.waitFor({ state: 'visible', timeout: 5000 });
+    await fileInput.waitFor({ state: 'attached', timeout: 5000 });
   } catch {
-    console.log('  ! Profile picture dialog controls did not appear.');
+    console.log('  ! Profile picture file input did not appear.');
     await closeProfilePictureEditor(page);
     return false;
   }
 
-  console.log(`  - Selecting profile photo: ${path.basename(data.contact.photoPath)}`);
+  console.log(`  - Uploading profile photo: ${path.basename(data.contact.photoPath)}`);
 
   try {
-    const chooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
-    await selectFileButton.click();
-    const chooser = await chooserPromise;
-    await chooser.setFiles(data.contact.photoPath);
+    await fileInput.setInputFiles(data.contact.photoPath);
   } catch (error) {
-    console.log(`  ! Could not choose the profile photo file: ${error.message}`);
+    console.log(`  ! Could not upload the profile photo: ${error.message}`);
     await closeProfilePictureEditor(page);
     return false;
   }
 
-  // Scope Save to the visible modal container that contains Select file,
-  // so we do not accidentally pick the Personal information Save button.
-  const modalScope = selectFileButton.locator(
-    'xpath=ancestor::*[.//button[normalize-space(.)="Save" or normalize-space(.)="Salva"]][1]',
-  );
-  const saveButton = modalScope.getByRole('button', { name: /^Save$|^Salva$/i }).first();
+  // Find the visible Save belonging to the photo editor. The Personal
+  // information Save remains elsewhere on the page, so use the last visible
+  // matching button after the editor has opened.
+  const saveButtons = page.getByRole('button', { name: /^Save$|^Salva$/i });
+  let saveButton = null;
 
-  try {
-    await saveButton.waitFor({ state: 'visible', timeout: 5000 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const count = await saveButtons.count();
 
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (!(await saveButton.isDisabled().catch(() => true))) break;
-      await page.waitForTimeout(100);
+    for (let i = count - 1; i >= 0; i -= 1) {
+      const candidate = saveButtons.nth(i);
+      if (!(await visible(candidate))) continue;
+
+      saveButton = candidate;
+      if (!(await candidate.isDisabled().catch(() => true))) break;
+      saveButton = null;
     }
 
-    if (await saveButton.isDisabled().catch(() => true)) {
-      console.log('  ! Profile picture Save button is still disabled after file selection.');
-      await closeProfilePictureEditor(page);
-      return false;
-    }
-  } catch {
-    console.log('  ! Profile picture Save button was not found.');
+    if (saveButton) break;
+    await page.waitForTimeout(100);
+  }
+
+  if (!saveButton) {
+    console.log('  ! Profile picture Save button did not become enabled.');
     await closeProfilePictureEditor(page);
     return false;
   }
@@ -757,11 +755,20 @@ async function uploadProfilePhoto(page) {
   await page.waitForTimeout(300);
 
   try {
-    await selectFileButton.waitFor({ state: 'hidden', timeout: 5000 });
+    await fileInput.waitFor({ state: 'detached', timeout: 5000 });
   } catch {
-    console.log('  ! Profile picture dialog did not close after Save.');
-    await closeProfilePictureEditor(page);
-    return false;
+    // Some builds keep the input node but hide the dialog. Verify that the
+    // upload editor is no longer interactable before treating this as failure.
+    const stillVisible = await page.getByText(
+      /Edit profile picture|Modifica immagine del profilo/i,
+      { exact: true },
+    ).isVisible().catch(() => false);
+
+    if (stillVisible) {
+      console.log('  ! Profile picture dialog did not close after Save.');
+      await closeProfilePictureEditor(page);
+      return false;
+    }
   }
 
   console.log('  - Profile photo saved');
