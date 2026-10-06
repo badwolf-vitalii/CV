@@ -1302,19 +1302,13 @@ async function languageInput(scope, label, index = 0) {
 }
 
 async function languageEntryScope(scope, index) {
-  const languageControl = await languageInput(
-    scope,
-    lang === 'it' ? 'Altra lingua' : 'Other language',
-    index,
-  );
+  const input = scope.locator(`#other-lang-input-${index}`).first();
 
-  if (!languageControl) return scope;
+  if (!(await visible(input))) return scope;
 
-  const entry = languageControl.locator(
-    'xpath=ancestor::*[.//*[normalize-space(.)="Listening" or normalize-space(.)="Ascolto"] and .//*[normalize-space(.)="Reading" or normalize-space(.)="Lettura"] and .//*[contains(normalize-space(.),"Spoken interaction") or contains(normalize-space(.),"Interazione orale")]][1]',
-  );
-
+  const entry = input.locator('xpath=ancestor::eportfolio-other-language-form[1]');
   if (await visible(entry)) return entry;
+
   return scope;
 }
 
@@ -1339,45 +1333,52 @@ async function visibleChoiceControls(scope) {
   return result;
 }
 
-async function selectLanguageSkillLevels(page, entryScope, item) {
-  const skills = [
-    ['Listening', item.skills?.listening || item.level],
-    ['Reading', item.skills?.reading || item.level],
-    ['Spoken interaction', item.skills?.spokenInteraction || item.level],
-    ['Spoken production', item.skills?.spokenProduction || item.level],
-    ['Writing', item.skills?.writing || item.level],
-  ];
+async function cefrControlByLabel(scope, aliases) {
+  for (const alias of aliases) {
+    const labels = scope.getByText(alias, { exact: true });
+    const count = await labels.count();
 
-  const controls = await visibleChoiceControls(entryScope);
+    for (let i = 0; i < count; i += 1) {
+      const label = labels.nth(i);
+      if (!(await visible(label))) continue;
 
-  // In the Europass language-entry form the language itself is an autocomplete
-  // text input; the five visible choice controls are exactly the CEFR fields.
-  if (controls.length === 5) {
-    for (let i = 0; i < skills.length; i += 1) {
-      const [label, level] = skills[i];
-      console.log(`    - ${label}: ${level}`);
+      const container = label.locator(
+        'xpath=ancestor::*[.//select or .//*[@role="combobox"]][1]',
+      );
 
-      const selected = await selectCefrLevel(page, controls[i], level);
-      if (!selected) {
-        console.log(`      ! Could not select ${label} level: ${level}`);
-      }
+      if (!(await visible(container))) continue;
+
+      const controls = await visibleChoiceControls(container);
+      if (controls.length > 0) return controls[0];
     }
-    return;
   }
 
-  console.log(`    ! Expected 5 CEFR dropdowns, found ${controls.length}; falling back to label lookup.`);
-  // Fallback for a future Europass DOM change: resolve each field by label.
-  for (const [label, level] of skills) {
-    console.log(`    - ${label}: ${level}`);
-    const aliases = {
-      Listening: ['Listening', 'Ascolto'],
-      Reading: ['Reading', 'Lettura'],
-      'Spoken interaction': ['Spoken interaction', 'Interazione orale'],
-      'Spoken production': ['Spoken production', 'Produzione orale'],
-      Writing: ['Writing', 'Scrittura'],
-    }[label];
+  return null;
+}
 
-    const control = await exactLabeledControl(entryScope, aliases, 0);
+async function selectLanguageSkillLevels(page, entryScope, item) {
+  const skills = [
+    ['Listening', ['Listening', 'Ascolto'], item.skills?.listening || item.level],
+    ['Reading', ['Reading', 'Lettura'], item.skills?.reading || item.level],
+    ['Spoken interaction', ['Spoken interaction', 'Interazione orale'], item.skills?.spokenInteraction || item.level],
+    ['Spoken production', ['Spoken production', 'Produzione orale'], item.skills?.spokenProduction || item.level],
+    ['Writing', ['Writing', 'Scrittura'], item.skills?.writing || item.level],
+  ];
+
+  for (let i = 0; i < skills.length; i += 1) {
+    const [label, aliases, level] = skills[i];
+    console.log(`    - ${label}: ${level}`);
+
+    // Europass re-renders parts of a language row whenever a CEFR value changes.
+    // Never keep the original list of dropdown locators across selections:
+    // resolve the current control again from its visible field label.
+    let control = await cefrControlByLabel(entryScope, aliases);
+
+    if (!control) {
+      const controls = await visibleChoiceControls(entryScope);
+      control = controls[i] ?? null;
+    }
+
     const selected = control
       ? await selectCefrLevel(page, control, level)
       : false;
@@ -1385,6 +1386,8 @@ async function selectLanguageSkillLevels(page, entryScope, item) {
     if (!selected) {
       console.log(`      ! Could not select ${label} level: ${level}`);
     }
+
+    await page.waitForTimeout(60);
   }
 }
 
