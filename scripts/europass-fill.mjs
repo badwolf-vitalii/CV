@@ -442,75 +442,78 @@ async function fillPhoneNumber(page, scope, value) {
 
 async function selectPersonalAddressCountry(page, scope, country) {
   const control = scope.locator('#perso-info-country-0').first();
-  if (!(await visible(control))) return false;
+  if (!(await visible(control))) {
+    console.log('  ! Address country control was not found.');
+    return false;
+  }
 
-  const names = [
-    country.toLowerCase() === 'italy'
-      ? (lang === 'it' ? 'Italia' : 'Italy')
-      : country,
-  ];
+  const targetName = country.toLowerCase() === 'italy'
+    ? (lang === 'it' ? 'Italia' : 'Italy')
+    : country;
 
-  await dismissAutocomplete(page);
+  const searchText = country.toLowerCase() === 'italy'
+    ? 'Ital'
+    : String(country);
+
+  const dropdown = control.locator('xpath=ancestor::p-dropdown[1]');
+  const trigger = dropdown.locator(
+    '[role="button"][aria-label="dropdown trigger"]',
+  ).first();
+
+  console.log('  - Opening address country dropdown');
   await closeOpenOverlays(page);
-  await control.scrollIntoViewIfNeeded().catch(() => {});
-  await control.click({ force: true, timeout: 3000 });
 
-  // Do not inspect the overlay immediately. PrimeNG creates it asynchronously,
-  // and the previous implementation often looked too early and saw zero
-  // elements even though the dropdown appeared a moment later.
+  if (await visible(trigger)) {
+    await trigger.click({ timeout: 3000 });
+  } else {
+    await control.click({ timeout: 3000 });
+  }
+
   const filter = page.locator(
-    '.p-select-overlay input[placeholder*="France" i], ' +
-    '.p-select-overlay input.p-select-filter, ' +
-    '.p-dropdown-panel input[placeholder*="France" i], ' +
-    '.p-dropdown-panel input.p-dropdown-filter'
+    '.p-select-overlay:visible input[type="text"], ' +
+    '.p-dropdown-panel:visible input[type="text"], ' +
+    'input[placeholder*="France" i]:visible',
   ).last();
 
   try {
-    await filter.waitFor({ state: 'visible', timeout: 3000 });
+    await filter.waitFor({ state: 'visible', timeout: 5000 });
   } catch {
-    // If this PrimeNG build does not expose a filter input, continue with
-    // keyboard search after opening the combobox.
+    console.log('  ! Country search field did not appear.');
+    return false;
   }
 
-  for (const name of names) {
-    const filterVisible = await visible(filter);
+  console.log(`  - Typing country filter: ${searchText}`);
+  await filter.click();
+  await filter.fill('');
+  await filter.type(searchText, { delay: 80 });
+  await page.waitForTimeout(300);
 
-    if (filterVisible) {
-      await filter.click({ force: true });
-      await filter.fill('');
-      await filter.type(String(name), { delay: 40 });
-    } else {
-      await page.keyboard.type(String(name), { delay: 40 }).catch(() => {});
-    }
+  const option = page.getByRole('option', {
+    name: targetName,
+    exact: true,
+  }).last();
 
-    const option = page.locator('li[role="option"]').filter({
-      hasText: new RegExp(`^\\s*${escapeRegex(name)}\\s*$`, 'i'),
-    }).last();
-
-    try {
-      await option.waitFor({ state: 'visible', timeout: 3000 });
-      await option.click({ timeout: 3000 });
-    } catch {
-      if (filterVisible) {
-        await filter.press('ArrowDown').catch(() => {});
-        await filter.press('Enter').catch(() => {});
-      } else {
-        await page.keyboard.press('ArrowDown').catch(() => {});
-        await page.keyboard.press('Enter').catch(() => {});
-      }
-    }
-
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const selectedText = normalize(await control.textContent()).toLowerCase();
-      if (selectedText.includes(String(name).toLowerCase())) return true;
-      await page.waitForTimeout(100);
-    }
-
-    await closeOpenOverlays(page);
-    await control.click({ force: true, timeout: 3000 }).catch(() => {});
+  try {
+    await option.waitFor({ state: 'visible', timeout: 5000 });
+  } catch {
+    console.log(`  ! Country option was not found: ${targetName}`);
+    return false;
   }
 
-  await closeOpenOverlays(page);
+  console.log(`  - Selecting address country: ${targetName}`);
+  await option.click({ timeout: 3000 });
+  await page.waitForTimeout(200);
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const selectedText = normalize(await control.textContent());
+    if (selectedText.toLowerCase().includes(targetName.toLowerCase())) {
+      console.log(`  - Address country: ${targetName}`);
+      return true;
+    }
+    await page.waitForTimeout(100);
+  }
+
+  console.log(`  ! Country selection did not stick: ${targetName}`);
   return false;
 }
 
