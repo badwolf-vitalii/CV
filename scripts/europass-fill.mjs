@@ -22,7 +22,7 @@ const T = {
     workSection: ['Work experience'],
     addWork: ['Add new Work experience', 'Add work experience', 'Add new work experience'],
     educationSection: ['Education and training', 'Education'],
-    addEducation: ['Add education and training', 'Add education', 'Add new'],
+    addEducation: ['Add education and training', 'Add education'],
     languageSection: ['Language skills', 'Languages'],
     addLanguage: ['Add language', 'Add a language'],
     projectSection: ['Projects'],
@@ -36,7 +36,7 @@ const T = {
     workSection: ['Esperienza lavorativa', 'Esperienze lavorative'],
     addWork: ['Aggiungi esperienza lavorativa', 'Aggiungi una esperienza lavorativa'],
     educationSection: ['Istruzione e formazione', 'Formazione'],
-    addEducation: ['Aggiungi istruzione e formazione', 'Aggiungi formazione', 'Aggiungi'],
+    addEducation: ['Aggiungi istruzione e formazione', 'Aggiungi formazione'],
     languageSection: ['Competenze linguistiche', 'Lingue'],
     addLanguage: ['Aggiungi lingua', 'Aggiungi una lingua'],
     projectSection: ['Progetti'],
@@ -202,6 +202,7 @@ async function fillAny(scope, labels, value, { optional = false } = {}) {
     await field.fill(String(value));
   } else {
     await field.fill(String(value));
+    await field.press('Escape').catch(() => {});
   }
   return true;
 }
@@ -233,15 +234,45 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
 
+async function lastVisibleOverlay(page) {
+  const overlays = page.locator(
+    '.p-select-overlay, .p-dropdown-panel, .p-autocomplete-overlay, [role="listbox"]',
+  );
+  const count = await overlays.count();
+
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const overlay = overlays.nth(i);
+    if (await visible(overlay)) return overlay;
+  }
+
+  return null;
+}
+
+async function closeOpenOverlays(page) {
+  for (let i = 0; i < 3; i += 1) {
+    const overlay = await lastVisibleOverlay(page);
+    if (!overlay) return;
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(80);
+  }
+}
+
 async function selectPrimeNgText(page, control, values) {
   if (!(await visible(control))) return false;
 
   const candidates = Array.isArray(values) ? values : [values];
+
+  await closeOpenOverlays(page);
+  await control.scrollIntoViewIfNeeded().catch(() => {});
   await control.click();
+  await page.waitForTimeout(120);
+
+  const overlay = await lastVisibleOverlay(page);
+  const searchScope = overlay ?? page;
 
   const filter = await firstVisibleCandidate(
-    page.locator(
-      '.p-select-overlay input, .p-dropdown-panel input, input.p-select-filter, input[role="searchbox"]',
+    searchScope.locator(
+      'input.p-select-filter, input.p-dropdown-filter, input[role="searchbox"], input[type="text"]',
     ),
   );
 
@@ -251,26 +282,28 @@ async function selectPrimeNgText(page, control, values) {
       await page.waitForTimeout(150);
     }
 
-    const exactOption = page.getByRole('option', {
+    const exactOption = searchScope.getByRole('option', {
       name: new RegExp(`^\\s*${escapeRegex(value)}\\s*$`, 'i'),
     });
     const option = await firstVisibleCandidate(exactOption);
     if (option) {
-      await option.click();
+      await option.click({ force: true });
+      await page.waitForTimeout(100);
       return true;
     }
 
     const fallback = await firstVisibleCandidate(
-      page.locator('li[role="option"], .p-select-option, .p-dropdown-item')
+      searchScope.locator('li[role="option"], .p-select-option, .p-dropdown-item, .p-autocomplete-option')
         .filter({ hasText: String(value) }),
     );
     if (fallback) {
-      await fallback.click();
+      await fallback.click({ force: true });
+      await page.waitForTimeout(100);
       return true;
     }
   }
 
-  await page.keyboard.press('Escape').catch(() => {});
+  await closeOpenOverlays(page);
   return false;
 }
 
@@ -342,6 +375,39 @@ async function fillAddress(page, scope) {
       console.log(`  ! Could not select address country: ${location.country}`);
     }
   }
+}
+
+async function selectCountry(page, scope, value, { optional = true } = {}) {
+  if (!value) return false;
+
+  const labels = ['Country', 'Paese'];
+  const field = await fieldByLabel(scope, labels);
+  if (!field) {
+    if (!optional) console.log('  ! Country field not found.');
+    return false;
+  }
+
+  const tag = await field.evaluate((el) => el.tagName.toLowerCase());
+
+  if (tag === 'select') {
+    for (const label of value.toLowerCase() === 'italy'
+      ? ['Italy', 'Italia']
+      : [String(value)]) {
+      try {
+        await field.selectOption({ label });
+        return true;
+      } catch {
+        // Try the next alias.
+      }
+    }
+    return false;
+  }
+
+  const names = value.toLowerCase() === 'italy'
+    ? ['Italy', 'Italia']
+    : [String(value)];
+
+  return selectPrimeNgText(page, field, names);
 }
 
 async function selectOrFill(scope, labels, value, { optional = false } = {}) {
@@ -464,19 +530,16 @@ async function fillPersonal(page) {
 }
 
 async function openWorkForm(page, job) {
-  const existingRecord = page.locator('.record-container').filter({
-    hasText: job.company,
-  }).first();
+  const editButton = await existingRecordEditButton(
+    page,
+    job.company,
+    ['Work experience', 'Esperienza lavorativa', 'Esperienze lavorative'],
+  );
 
-  if (await visible(existingRecord)) {
-    const editButton = existingRecord.locator(
-      'button[aria-label*="Edit the record of the section Work experience" i]',
-    ).first();
-    if (await visible(editButton)) {
-      await editButton.click();
-      await page.waitForTimeout(500);
-      return;
-    }
+  if (editButton) {
+    await editButton.click();
+    await page.waitForTimeout(500);
+    return;
   }
 
   const addButton = page.locator('#section-add-record-workexperience').first();
@@ -519,7 +582,8 @@ async function fillWork(page) {
     await fillAny(scope, ['Job title', 'Occupation or position held', 'Position', 'Titolo professionale', 'Posizione ricoperta'], job.title);
     await fillAny(scope, ['Employer', 'Employer name', 'Organisation', 'Company', 'Datore di lavoro', 'Nome del datore di lavoro', 'Organizzazione'], job.company);
     await fillAny(scope, ['City', 'Town', 'Città', 'Comune'], job.location.city, { optional: true });
-    await selectOrFill(scope, ['Country', 'Paese'], job.location.country, { optional: true });
+    await closeOpenOverlays(page);
+    await selectCountry(page, scope, job.location.country, { optional: true });
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], job.start, { optional: true });
     if (job.end) {
       await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], job.end, { optional: true });
@@ -540,30 +604,88 @@ async function fillWork(page) {
 
 async function sectionCard(page, titles) {
   for (const title of titles) {
-    const cards = page.locator('eprofile-section-card').filter({ hasText: title });
-    const count = await cards.count();
+    const headings = page.getByText(title, { exact: true });
+    const count = await headings.count();
+
     for (let i = 0; i < count; i += 1) {
-      const card = cards.nth(i);
-      if (await visible(card)) return card;
+      const heading = headings.nth(i);
+      if (!(await visible(heading))) continue;
+
+      for (const xpath of [
+        'ancestor::eprofile-section-card[1]',
+        'ancestor::*[contains(@class,"card")][1]',
+        'ancestor::*[.//button[contains(normalize-space(.),"Add new") or contains(normalize-space(.),"Aggiungi")]][1]',
+      ]) {
+        const container = heading.locator(`xpath=${xpath}`);
+        if (await visible(container)) return container;
+      }
     }
   }
+
+  return null;
+}
+
+async function existingRecordEditButton(page, recordText, sectionNames) {
+  const nodes = page.getByText(recordText, { exact: false });
+  const count = await nodes.count();
+
+  for (let i = 0; i < count; i += 1) {
+    const node = nodes.nth(i);
+    if (!(await visible(node))) continue;
+
+    const record = node.locator(
+      'xpath=ancestor::*[.//button[contains(@aria-label,"Edit the record of the section")]][1]',
+    );
+    if (!(await visible(record))) continue;
+
+    const buttons = record.locator('button[aria-label*="Edit the record of the section" i]');
+    const buttonCount = await buttons.count();
+
+    for (let j = 0; j < buttonCount; j += 1) {
+      const button = buttons.nth(j);
+      if (!(await visible(button))) continue;
+      const aria = normalize(await button.getAttribute('aria-label')).toLowerCase();
+      if (sectionNames.some((name) => aria.includes(name.toLowerCase()))) return button;
+    }
+  }
+
+  return null;
+}
+
+async function waitForEducationForm(page, item) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const qualification = await fieldByLabel(
+      page,
+      ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
+      { textEntryOnly: true },
+    );
+    const organisation = await fieldByLabel(
+      page,
+      ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'],
+      { textEntryOnly: true },
+    );
+
+    if (qualification && organisation) return await currentScope(page);
+
+    await pressEnter(
+      `Open the Education and training form for: ${item.qualification}. Do not just expand the section; open the actual Add/Edit form.`,
+    );
+  }
+
   return null;
 }
 
 async function openEducationForm(page, item) {
-  for (const text of [item.institution, item.qualification]) {
-    const existing = page.locator('eprofile-section-card').filter({ hasText: text }).first();
-    if (!(await visible(existing))) continue;
+  const editButton = await existingRecordEditButton(
+    page,
+    item.institution,
+    ['Education', 'Istruzione', 'Formazione'],
+  );
 
-    const editButton = existing.locator(
-      'button[aria-label*="Edit the record of the section Education" i], button[aria-label*="Edit the record of the section Istruzione" i]',
-    ).first();
-
-    if (await visible(editButton)) {
-      await editButton.click();
-      await page.waitForTimeout(500);
-      return;
-    }
+  if (editButton) {
+    await editButton.click();
+    await page.waitForTimeout(500);
+    return await waitForEducationForm(page, item);
   }
 
   const section = await sectionCard(page, T.educationSection);
@@ -572,7 +694,8 @@ async function openEducationForm(page, item) {
     if (await visible(addButton)) {
       await addButton.click();
       await page.waitForTimeout(500);
-      return;
+      const scope = await waitForEducationForm(page, item);
+      if (scope) return scope;
     }
 
     const ariaAddButton = section.locator(
@@ -581,29 +704,26 @@ async function openEducationForm(page, item) {
     if (await visible(ariaAddButton)) {
       await ariaAddButton.click();
       await page.waitForTimeout(500);
-      return;
+      const scope = await waitForEducationForm(page, item);
+      if (scope) return scope;
     }
   }
 
-  if (await clickText(page, T.addEducation)) {
-    await page.waitForTimeout(500);
-    return;
-  }
-
-  await pressEnter(
-    `Open "${T.educationSection[0]}" and choose Add for: ${item.qualification}.`,
-  );
+  return await waitForEducationForm(page, item);
 }
 
 async function fillEducation(page) {
   console.log(`\n[3/6] Education (${data.education.length} entries)`);
   for (const [index, item] of data.education.entries()) {
     console.log(`  ${index + 1}. ${item.qualification}`);
-    await openEducationForm(page, item);
-    const scope = await currentScope(page);
+    const scope = await openEducationForm(page, item);
+    if (!scope) {
+      console.log(`  ! Education form was not detected for: ${item.qualification}. Skipping this entry.`);
+      continue;
+    }
     await fillAny(scope, ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'], item.qualification);
     await fillAny(scope, ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'], item.institution);
-    await selectOrFill(scope, ['Country', 'Paese'], item.country, { optional: true });
+    await selectCountry(page, scope, item.country, { optional: true });
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], item.start, { optional: true });
     await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], item.end, { optional: true });
     if (!(await clickSave(page))) {
@@ -672,12 +792,16 @@ async function exactLabeledControl(scope, labels, index = 0) {
 
 async function languageSectionScope(page) {
   const section = await sectionCard(page, T.languageSection);
-  if (!section) return null;
+  if (section) {
+    const motherText = section.getByText(/Mother tongue|Lingua madre/i, { exact: true });
+    const otherText = section.getByText(/Other language|Altra lingua/i, { exact: true });
+    if (await visible(motherText) && await visible(otherText)) return section;
+  }
 
-  const motherText = section.getByText(/Mother tongue|Lingua madre/i, { exact: true });
-  const otherText = section.getByText(/Other language|Altra lingua/i, { exact: true });
+  const motherText = page.getByText(/Mother tongue|Lingua madre/i, { exact: true });
+  const otherText = page.getByText(/Other language|Altra lingua/i, { exact: true });
+  if (await visible(motherText) && await visible(otherText)) return page;
 
-  if (await visible(motherText) && await visible(otherText)) return section;
   return null;
 }
 
