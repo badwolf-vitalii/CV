@@ -64,7 +64,16 @@
         #contacts
       ],
       align(right + horizon)[
-        #image(photo-path, width: 27mm, height: 32mm, fit: "cover")
+        #box(
+          width: 29mm,
+          height: 29mm,
+          radius: 50%,
+          clip: true,
+          inset: 0pt,
+          stroke: 0.6pt + luma(170),
+        )[
+          #image(photo-path, width: 100%, height: 100%, fit: "cover")
+        ]
       ],
     )
   } else {
