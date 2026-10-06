@@ -1,6 +1,6 @@
 #let personal = yaml("personal.yaml")
 #let show-photo = personal.at("show_photo", default: false)
-#let photo-path = personal.at("photo_path", default: "photo.jpg")
+#let photo-path = sys.inputs.at("photo_path", default: personal.at("photo_path", default: "photo.jpg"))
 
 #set page(
   paper: "a4",

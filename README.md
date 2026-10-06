@@ -10,7 +10,7 @@ Sensitive contact details are intentionally **not stored in this repository**. T
 - `personal.example.yaml` — example structure for local private contact data.
 - `personal.yaml` — local private data; never commit this file.
 - `photo.jpg` / `photo.png` / `photo.webp` — optional local profile photo; never commit it.
-- `build.ps1` — builds the final PDF into `output/`.
+- `build.ps1` — optimizes the local profile photo when enabled and builds the final PDF into `output/`.
 - `.github/workflows/privacy-check.yml` — fails CI if private/generated files are accidentally tracked.
 
 ## Build on Windows
@@ -32,7 +32,7 @@ Sensitive contact details are intentionally **not stored in this repository**. T
    photo_path: "photo.jpg"
    ```
 
-4. Optional: put your profile photo next to `cv.typ` (for example `photo.jpg`) and set `show_photo: true`.
+4. Optional: put your profile photo next to `cv.typ` (for example `photo.jpg`) and set `show_photo: true`. During the build, the photo is center-cropped and resized to a temporary 450×450 JPEG before it is embedded in the PDF; the original file is never modified.
 5. Build the CV:
 
    ```powershell
