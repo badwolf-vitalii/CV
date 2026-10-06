@@ -41,7 +41,7 @@
   block(breakable: false)[
     *#title* - #link(url)[#url] \
     #description *Tech:* #tech
-    v(3pt)
+    #v(3pt)
   ]
 }
 
@@ -142,7 +142,7 @@
 
 #role(
   "Junior Software Developer",
-  "Mar 2011 - Jul 2013",
+  "Mar 2011 - Aug 2014",
   "ADVA SOFT",
   "Lviv, Ukraine",
   [
