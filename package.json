@@ -1,0 +1,12 @@
+{
+  "name": "vitalii-hanych-cv-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "europass": "node scripts/europass-fill.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.55.0",
+    "yaml": "^2.8.1"
+  }
+}

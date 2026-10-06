@@ -9,6 +9,11 @@
 /output/
 *.pdf
 
+# Local Europass automation state
+/node_modules/
+/.europass-browser-profile/
+/.europass-debug/
+
 # Editor / OS files
 .vs/
 .vscode/

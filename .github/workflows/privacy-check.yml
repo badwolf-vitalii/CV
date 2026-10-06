@@ -30,6 +30,22 @@ jobs:
             exit 1
           fi
 
+          if [ -n "$(git ls-files '.europass-browser-profile/**' '.europass-debug/**')" ]; then
+            echo "Europass browser/debug state may contain private data and must never be committed."
+            exit 1
+          fi
+
+          if [ -n "$(git ls-files 'node_modules/**')" ]; then
+            echo "node_modules must not be committed."
+            exit 1
+          fi
+
+      - name: Validate Europass automation syntax
+        shell: bash
+        run: |
+          node --check scripts/read-cv-data.mjs
+          node --check scripts/europass-fill.mjs
+
       - name: Install Typst
         uses: typst-community/setup-typst@v5
         with:
