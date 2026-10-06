@@ -444,9 +444,11 @@ async function selectPersonalAddressCountry(page, scope, country) {
   const control = scope.locator('#perso-info-country-0').first();
   if (!(await visible(control))) return false;
 
-  const names = country.toLowerCase() === 'italy'
-    ? ['Italy', 'Italia']
-    : [country];
+  const names = [
+    country.toLowerCase() === 'italy'
+      ? (lang === 'it' ? 'Italia' : 'Italy')
+      : country,
+  ];
 
   await dismissAutocomplete(page);
   await closeOpenOverlays(page);
@@ -487,7 +489,7 @@ async function selectPersonalAddressCountry(page, scope, country) {
 
     try {
       await option.waitFor({ state: 'visible', timeout: 3000 });
-      await option.evaluate((el) => el.click());
+      await option.click({ timeout: 3000 });
     } catch {
       if (filterVisible) {
         await filter.press('ArrowDown').catch(() => {});
@@ -671,7 +673,7 @@ async function fillPersonal(page) {
 
   await fillAny(scope, ['Email', 'Email address', 'Indirizzo e-mail'], data.contact.email, { optional: true });
   await fillPhoneNumber(page, scope, data.contact.phone);
-  console.log('  - Personal address: skipped (optional in Europass)');
+  await fillAddress(page, scope);
   await fillAny(scope, ['Website', 'LinkedIn', 'Sito web'], data.contact.linkedin, { optional: true });
 
   const aboutEditor = scope.locator(
