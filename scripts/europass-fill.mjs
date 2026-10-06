@@ -296,14 +296,28 @@ function escapeRegex(value) {
 }
 
 async function lastVisibleOverlay(page) {
-  const overlays = page.locator(
-    '.p-select-overlay, .p-dropdown-panel, .p-autocomplete-overlay, [role="listbox"]',
-  );
-  const count = await overlays.count();
+  // Prefer the outer PrimeNG overlay. It contains both the filter input and
+  // the listbox. Returning the inner [role="listbox"] loses access to the
+  // filter and breaks virtualised country lists such as Italy.
+  for (const selector of [
+    '.p-select-overlay',
+    '.p-dropdown-panel',
+    '.p-autocomplete-overlay',
+  ]) {
+    const overlays = page.locator(selector);
+    const count = await overlays.count();
 
+    for (let i = count - 1; i >= 0; i -= 1) {
+      const overlay = overlays.nth(i);
+      if (await visible(overlay)) return overlay;
+    }
+  }
+
+  const listboxes = page.locator('[role="listbox"]');
+  const count = await listboxes.count();
   for (let i = count - 1; i >= 0; i -= 1) {
-    const overlay = overlays.nth(i);
-    if (await visible(overlay)) return overlay;
+    const listbox = listboxes.nth(i);
+    if (await visible(listbox)) return listbox;
   }
 
   return null;
@@ -362,6 +376,18 @@ async function selectPrimeNgText(page, control, values) {
       await fallback.click({ force: true });
       await page.waitForTimeout(100);
       return true;
+    }
+
+    // PrimeNG country selects use a virtualised list. If the requested item is
+    // not currently materialised in the DOM, the filter still narrows it to a
+    // single option, so keyboard selection is more reliable than scrolling.
+    if (filter) {
+      await filter.press('ArrowDown').catch(() => {});
+      await filter.press('Enter').catch(() => {});
+      await page.waitForTimeout(150);
+
+      const selectedText = normalize(await control.textContent()).toLowerCase();
+      if (selectedText.includes(String(value).toLowerCase())) return true;
     }
   }
 
@@ -535,12 +561,15 @@ async function checkAny(scope, labels, { optional = true } = {}) {
 async function clickSave(page) {
   const scope = await currentScope(page);
   for (const candidate of T.save) {
-    const button = scope.getByRole('button', { name: candidate, exact: false });
-    if (await visible(button)) {
-      await button.first().click();
-      await page.waitForTimeout(700);
-      return true;
-    }
+    const button = scope.getByRole('button', { name: candidate, exact: false }).first();
+    if (!(await visible(button))) continue;
+
+    const disabled = await button.isDisabled().catch(() => false);
+    if (disabled) return false;
+
+    await button.click({ timeout: 3000 });
+    await page.waitForTimeout(700);
+    return true;
   }
   return false;
 }
@@ -588,7 +617,15 @@ async function fillPersonal(page) {
     }
   }
 
-  await clickSave(page);
+  if (!(await clickSave(page))) {
+    await pressEnter(
+      'Personal information is still invalid. In Europass, complete any red required field (normally Address > Country = Italy), then press Enter here.',
+    );
+
+    if (!(await clickSave(page))) {
+      throw new Error('Personal information is still invalid after the manual correction.');
+    }
+  }
 }
 
 async function openWorkForm(page, job) {
