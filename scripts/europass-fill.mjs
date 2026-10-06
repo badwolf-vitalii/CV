@@ -1197,7 +1197,14 @@ async function selectAutocompleteExact(page, control, value) {
 async function selectCefrLevel(page, control, level) {
   await dismissAutocomplete(page);
   await closeOpenOverlays(page);
-  await control.scrollIntoViewIfNeeded().catch(() => {});
+
+  // Keep the CEFR control around the middle of the viewport before opening
+  // its dropdown. Near the bottom of the page Europass otherwise renders most
+  // of the option panel below the viewport and clicks become unreliable.
+  await control.evaluate((el) => {
+    el.scrollIntoView({ block: 'center', inline: 'nearest' });
+  }).catch(() => {});
+  await page.waitForTimeout(80);
 
   const tag = await control.evaluate((el) => el.tagName.toLowerCase());
 
@@ -1235,8 +1242,12 @@ async function selectCefrLevel(page, control, level) {
     }).first();
 
     try {
-      await option.waitFor({ state: 'visible', timeout: 450 });
-      await option.click({ force: true, timeout: 450 });
+      await option.waitFor({ state: 'visible', timeout: 700 });
+      await option.evaluate((el) => {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      });
+      await page.waitForTimeout(40);
+      await option.click({ force: true, timeout: 700 });
       await page.waitForTimeout(40);
     } catch {
       await page.keyboard.press('Escape').catch(() => {});
