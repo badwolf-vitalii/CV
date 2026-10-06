@@ -337,58 +337,62 @@ async function selectPrimeNgText(page, control, values) {
 
   const candidates = Array.isArray(values) ? values : [values];
 
-  await dismissAutocomplete(page);
-  await closeOpenOverlays(page);
-  await control.scrollIntoViewIfNeeded().catch(() => {});
-  await control.click({ force: true, timeout: 3000 });
-  await page.waitForTimeout(120);
-
-  const overlay = await lastVisibleOverlay(page);
-  const searchScope = overlay ?? page;
-
-  const filter = await firstVisibleCandidate(
-    searchScope.locator(
-      'input.p-select-filter, input.p-dropdown-filter, input[role="searchbox"], input[type="text"]',
-    ),
-  );
-
   for (const value of candidates) {
+    await dismissAutocomplete(page);
+    await closeOpenOverlays(page);
+    await control.scrollIntoViewIfNeeded().catch(() => {});
+    await control.click({ force: true, timeout: 3000 });
+    await page.waitForTimeout(200);
+
+    // Europass currently renders country dropdowns as PrimeNG p-dropdown
+    // controls. Their filter input lives in an overlay attached to <body>,
+    // not necessarily inside the logical dropdown subtree.
+    const filter = await firstVisibleCandidate(
+      page.locator([
+        'input[placeholder*="France" i]',
+        'input.p-select-filter',
+        'input.p-dropdown-filter',
+        '.p-select-overlay input[type="text"]',
+        '.p-dropdown-panel input[type="text"]',
+      ].join(', ')),
+    );
+
     if (filter) {
       await filter.fill(String(value));
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(250);
+    } else {
+      // Some PrimeNG builds focus the filter without exposing a stable class.
+      // Typing through the keyboard still filters the opened dropdown.
+      await page.keyboard.type(String(value)).catch(() => {});
+      await page.waitForTimeout(250);
     }
 
-    const exactOption = searchScope.getByRole('option', {
-      name: new RegExp(`^\\s*${escapeRegex(value)}\\s*$`, 'i'),
-    });
-    const option = await firstVisibleCandidate(exactOption);
+    const option = await firstVisibleCandidate(
+      page.getByRole('option', {
+        name: new RegExp(`^\\s*${escapeRegex(value)}(?:\\s|$)`, 'i'),
+      }),
+    );
+
     if (option) {
       await option.click({ force: true });
-      await page.waitForTimeout(100);
-      return true;
-    }
-
-    const fallback = await firstVisibleCandidate(
-      searchScope.locator('li[role="option"], .p-select-option, .p-dropdown-item, .p-autocomplete-option')
-        .filter({ hasText: String(value) }),
-    );
-    if (fallback) {
-      await fallback.click({ force: true });
-      await page.waitForTimeout(100);
-      return true;
-    }
-
-    // PrimeNG country selects use a virtualised list. If the requested item is
-    // not currently materialised in the DOM, the filter still narrows it to a
-    // single option, so keyboard selection is more reliable than scrolling.
-    if (filter) {
-      await filter.press('ArrowDown').catch(() => {});
-      await filter.press('Enter').catch(() => {});
       await page.waitForTimeout(150);
-
-      const selectedText = normalize(await control.textContent()).toLowerCase();
-      if (selectedText.includes(String(value).toLowerCase())) return true;
+    } else {
+      // Virtualised lists may not expose the option node until keyboard
+      // navigation. After filtering, the first real result is the target.
+      if (filter) {
+        await filter.press('ArrowDown').catch(() => {});
+        await filter.press('Enter').catch(() => {});
+      } else {
+        await page.keyboard.press('ArrowDown').catch(() => {});
+        await page.keyboard.press('Enter').catch(() => {});
+      }
+      await page.waitForTimeout(200);
     }
+
+    const selectedText = normalize(await control.textContent()).toLowerCase();
+    if (selectedText.includes(String(value).toLowerCase())) return true;
+
+    await closeOpenOverlays(page);
   }
 
   await closeOpenOverlays(page);
@@ -461,6 +465,8 @@ async function fillAddress(page, scope) {
     const selected = await selectPrimeNgText(page, countryControl, countryNames);
     if (!selected) {
       console.log(`  ! Could not select address country: ${location.country}`);
+    } else {
+      console.log(`  - Address country: ${location.country}`);
     }
   }
 }
