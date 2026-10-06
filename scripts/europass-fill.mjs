@@ -1192,7 +1192,15 @@ async function visibleChoiceControls(scope) {
 
   for (let i = 0; i < count; i += 1) {
     const control = controls.nth(i);
-    if (await visible(control)) result.push(control);
+    if (!(await visible(control))) continue;
+
+    // "Other language" is an autocomplete <input role="combobox">.
+    // It must never be treated as one of the five CEFR level dropdowns.
+    const tag = await control.evaluate((el) => el.tagName.toLowerCase());
+    if (tag === 'input' || tag === 'textarea') continue;
+    if (await isTextEntry(control)) continue;
+
+    result.push(control);
   }
 
   return result;
@@ -1211,7 +1219,7 @@ async function selectLanguageSkillLevels(page, entryScope, item) {
 
   // In the Europass language-entry form the language itself is an autocomplete
   // text input; the five visible choice controls are exactly the CEFR fields.
-  if (controls.length >= 5) {
+  if (controls.length === 5) {
     for (let i = 0; i < skills.length; i += 1) {
       const [label, level] = skills[i];
       console.log(`    - ${label}: ${level}`);
@@ -1224,6 +1232,7 @@ async function selectLanguageSkillLevels(page, entryScope, item) {
     return;
   }
 
+  console.log(`    ! Expected 5 CEFR dropdowns, found ${controls.length}; falling back to label lookup.`);
   // Fallback for a future Europass DOM change: resolve each field by label.
   for (const [label, level] of skills) {
     console.log(`    - ${label}: ${level}`);
