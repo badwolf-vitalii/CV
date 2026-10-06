@@ -23,7 +23,11 @@
     [#text(weight: "bold")[#title]],
     [#text(weight: "bold")[#period]],
   )
-  text(weight: "bold")[#company] #if place != "" [| #place]
+  if place == "" {
+    text(weight: "bold")[#company]
+  } else {
+    text(weight: "bold")[#company | #place]
+  }
   v(2pt)
   body
   v(4pt)
@@ -32,7 +36,7 @@
 #align(center)[
   #text(size: 18pt, weight: "bold")[Vitalii Hanych]
   #v(2pt)
-  #text(size: 10pt, weight: "bold")[.NET Software Engineer | C# • WPF • ASP.NET Core • REST APIs • SQL]
+  #text(size: 10pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
   #v(3pt)
   #personal.location | #personal.phone | #link("mailto:" + personal.email)[#personal.email]
   #linebreak()
@@ -40,10 +44,10 @@
 ]
 
 #section("PROFESSIONAL SUMMARY")
-Senior .NET software engineer with 10+ years of experience building and maintaining desktop, web, and integration-heavy applications. Strong in C#, WPF, ASP.NET Core, REST APIs, SQL, system integration, and production troubleshooting, with a focus on reliable, maintainable solutions.
+Senior .NET software engineer with 10+ years of experience building and maintaining desktop, web, and integration-heavy applications. Strong in C\#, WPF, ASP.NET Core, REST APIs, SQL, system integration, and production troubleshooting, with a focus on reliable, maintainable solutions.
 
 #section("TECHNICAL SKILLS")
-*Core:* C# • .NET 8 / 6 • .NET Framework 4.8 • WPF • XAML \
+*Core:* C\# • .NET 8 / 6 • .NET Framework 4.8 • WPF • XAML \
 *Backend & Web:* ASP.NET Core • REST APIs • ASP.NET MVC • SignalR • WCF • Windows Services • IIS \
 *Data:* SQL Server • SQLite • Oracle • EF Core • Dapper • LINQ • T-SQL \
 *Integration & Engineering:* System Integration • Hardware & Peripheral Integration • Debugging & Diagnostics • Production Troubleshooting • Legacy System Modernization • Git • Jira • Unit Testing \
@@ -57,7 +61,7 @@ Senior .NET software engineer with 10+ years of experience building and maintain
   "A.E.P. Ticketing Solutions S.R.L.",
   "Italy",
   [
-    - Develop and maintain C#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
+    - Develop and maintain C\#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
     - Build WPF applications and integrate software with POS terminals, printers, coin devices, card readers, and other external hardware/services.
     - Investigate production incidents across applications, services, devices, and communication layers; improve reliability, logging, error handling, and diagnostics.
     - Work with SQL Server and Oracle, Git, Jira, unit testing, IIS/Windows Services, deployments, maintenance, and legacy-system modernization.
@@ -70,7 +74,7 @@ Senior .NET software engineer with 10+ years of experience building and maintain
   "Conduent Business Solutions Italia S.P.A.",
   "Vimodrone (MI), Italy",
   [
-    - Developed C#/.NET/WPF software for manned and unmanned ticketing vending machines and integrated POS, printers, banknote recyclers, coin dispensers, QR readers, and other peripherals.
+    - Developed C\#/.NET/WPF software for manned and unmanned ticketing vending machines and integrated POS, printers, banknote recyclers, coin dispensers, QR readers, and other peripherals.
     - Worked with WCF, ASP.NET MVC, Windows Services, IIS, SQL Server, Git/TFS, unit testing, and Agile development.
   ]
 )
@@ -92,7 +96,7 @@ Senior .NET software engineer with 10+ years of experience building and maintain
   "ADVA SOFT",
   "Lviv, Ukraine",
   [
-    - Developed iOS software in C/C++/Objective-C, image-processing algorithms and shaders, plus C#/JavaScript components and 3D games with Unity3D.
+    - Developed iOS software in C/C++/Objective-C, image-processing algorithms and shaders, plus C\#/JavaScript components and 3D games with Unity3D.
   ]
 )
 
