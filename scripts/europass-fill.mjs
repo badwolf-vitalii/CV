@@ -559,36 +559,173 @@ async function fillEducation(page) {
   }
 }
 
+async function exactLabeledControl(scope, labels, index = 0) {
+  for (const label of labels) {
+    const controls = scope.getByLabel(label, { exact: true });
+    const count = await controls.count();
+    let visibleIndex = 0;
+
+    for (let i = 0; i < count; i += 1) {
+      const control = controls.nth(i);
+      if (!(await visible(control))) continue;
+      if (visibleIndex === index) return control;
+      visibleIndex += 1;
+    }
+  }
+
+  for (const label of labels) {
+    const labelNodes = scope.locator('label').filter({ hasText: label });
+    const count = await labelNodes.count();
+    let visibleIndex = 0;
+
+    for (let i = 0; i < count; i += 1) {
+      const labelNode = labelNodes.nth(i);
+      if (!(await visible(labelNode))) continue;
+      if (normalize(await labelNode.textContent()) !== label) continue;
+
+      const forId = await labelNode.getAttribute('for');
+      if (!forId) continue;
+
+      const control = scope.locator(`[id="${forId.replaceAll('"', '\\"')}"]`).first();
+      if (!(await visible(control))) continue;
+
+      if (visibleIndex === index) return control;
+      visibleIndex += 1;
+    }
+  }
+
+  return null;
+}
+
+function languageNames(name) {
+  const aliases = {
+    Ukrainian: ['Ukrainian', 'ucraino', 'український'],
+    Italian: ['Italian', 'italiano'],
+    English: ['English', 'inglese'],
+    Russian: ['Russian', 'russo'],
+  };
+  return aliases[name] || [name];
+}
+
+async function selectLabeledChoiceAt(page, scope, labels, index, values) {
+  const control = await exactLabeledControl(scope, labels, index);
+  if (!control) return false;
+
+  const tag = await control.evaluate((el) => el.tagName.toLowerCase());
+  if (tag === 'select') {
+    for (const value of values) {
+      try {
+        await control.selectOption({ label: String(value) });
+        return true;
+      } catch {
+        // Try the next alias.
+      }
+    }
+    return false;
+  }
+
+  return selectPrimeNgText(page, control, values);
+}
+
+async function openLanguageSkillsForm(page) {
+  const motherTongue = await exactLabeledControl(
+    page,
+    ['Mother tongue', 'Lingua madre'],
+    0,
+  );
+  if (motherTongue) return true;
+
+  const editButton = page.locator(
+    'button[aria-label*="Language skills" i], button[aria-label*="Competenze linguistiche" i]',
+  ).first();
+
+  if (await visible(editButton)) {
+    await editButton.click();
+    await page.waitForTimeout(500);
+    return true;
+  }
+
+  await pressEnter(
+    `Open "${T.languageSection[0]}" so that the Mother tongue and Other language fields are visible.`,
+  );
+
+  return Boolean(await exactLabeledControl(
+    page,
+    ['Mother tongue', 'Lingua madre'],
+    0,
+  ));
+}
+
 async function fillLanguages(page) {
   console.log(`\n[4/6] Languages (${data.languages.length} entries)`);
-  for (const [index, item] of data.languages.entries()) {
-    console.log(`  ${index + 1}. ${item.language} - ${item.level}`);
-    await ensureFormOpen(
-      page,
-      T.addLanguage,
-      `Open "${T.languageSection[0]}" and choose Add for: ${item.language}.`,
-    );
-    const scope = await currentScope(page);
-    await selectOrFill(scope, ['Language', 'Lingua'], item.language, { optional: true });
 
-    if (/native/i.test(item.level)) {
-      await checkAny(scope, ['Mother tongue', 'Native language', 'Lingua madre'], { optional: true });
-    } else {
-      for (const labels of [
-        ['Listening', 'Ascolto'],
-        ['Reading', 'Lettura'],
-        ['Spoken interaction', 'Interazione orale'],
-        ['Spoken production', 'Produzione orale'],
-        ['Writing', 'Scrittura'],
-        ['Level', 'Livello'],
-      ]) {
-        await selectOrFill(scope, labels, item.level, { optional: true });
+  if (!(await openLanguageSkillsForm(page))) {
+    console.log('  ! Language skills form was not detected. Skipping automatic language filling.');
+    return;
+  }
+
+  const nativeLanguage = data.languages.find((item) => /native/i.test(item.level));
+  const otherLanguages = data.languages.filter((item) => !/native/i.test(item.level));
+
+  if (nativeLanguage) {
+    console.log(`  Mother tongue: ${nativeLanguage.language}`);
+    const selected = await selectLabeledChoiceAt(
+      page,
+      page,
+      ['Mother tongue', 'Lingua madre'],
+      0,
+      languageNames(nativeLanguage.language),
+    );
+    if (!selected) {
+      console.log(`  ! Could not select mother tongue: ${nativeLanguage.language}`);
+    }
+  }
+
+  for (const [index, item] of otherLanguages.entries()) {
+    console.log(`  Other language ${index + 1}: ${item.language} - ${item.level}`);
+
+    if (index > 0) {
+      const addButton = page.getByRole('button', {
+        name: /Add another language|Aggiungi un'altra lingua/i,
+      }).first();
+
+      if (await visible(addButton)) {
+        await addButton.click();
+        await page.waitForTimeout(300);
+      } else {
+        console.log('  ! "Add another language" button was not found.');
+        break;
       }
     }
 
-    if (!(await clickSave(page))) {
-      await pressEnter('Save this language entry in Europass, then return here.');
+    const selected = await selectLabeledChoiceAt(
+      page,
+      page,
+      ['Other language', 'Altra lingua'],
+      index,
+      languageNames(item.language),
+    );
+
+    if (!selected) {
+      console.log(`  ! Could not select language: ${item.language}`);
+      continue;
     }
+
+    await page.waitForTimeout(250);
+
+    for (const labels of [
+      ['Listening', 'Ascolto'],
+      ['Reading', 'Lettura'],
+      ['Spoken interaction', 'Interazione orale'],
+      ['Spoken production', 'Produzione orale'],
+      ['Writing', 'Scrittura'],
+    ]) {
+      await selectLabeledChoiceAt(page, page, labels, index, [item.level]);
+    }
+  }
+
+  if (!(await clickSave(page))) {
+    await pressEnter('Save the Language skills section in Europass, then return here.');
   }
 }
 
