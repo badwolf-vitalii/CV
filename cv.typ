@@ -20,20 +20,20 @@
 
 #let role(title, period, company, place, body) = {
   block(breakable: false)[
-    grid(
+    #grid(
       columns: (1fr, auto),
       gutter: 8pt,
       [#text(weight: "bold")[#title]],
       [#text(weight: "bold")[#period]],
     )
-    if place == "" {
+    #if place == "" {
       text(weight: "bold")[#company]
     } else {
       text(weight: "bold")[#company | #place]
     }
-    v(2pt)
-    body
-    v(3pt)
+    #v(2pt)
+    #body
+    #v(3pt)
   ]
 }
 
