@@ -1,72 +1,112 @@
 #let personal = yaml("personal.yaml")
+#let show-photo = personal.at("show_photo", default: false)
+#let photo-path = personal.at("photo_path", default: "photo.jpg")
 
 #set page(
   paper: "a4",
-  margin: (x: 16mm, y: 14mm),
+  margin: (x: 15mm, y: 13mm),
 )
-#set text(size: 9pt)
-#set par(leading: 0.55em)
-#set list(indent: 11pt, body-indent: 4pt, spacing: 2pt)
+#set text(font: "Arial", size: 10pt)
+#set par(leading: 0.48em)
+#set list(indent: 12pt, body-indent: 4pt, spacing: 1.5pt)
 
 #let section(title) = {
-  v(7pt)
-  text(size: 10pt, weight: "bold")[#title]
+  v(6pt)
+  text(size: 10.5pt, weight: "bold")[#title]
   v(1pt)
   line(length: 100%, stroke: 0.5pt)
-  v(4pt)
+  v(3pt)
 }
 
 #let role(title, period, company, place, body) = {
-  grid(
-    columns: (1fr, auto),
-    gutter: 8pt,
-    [#text(weight: "bold")[#title]],
-    [#text(weight: "bold")[#period]],
-  )
-  if place == "" {
-    text(weight: "bold")[#company]
-  } else {
-    text(weight: "bold")[#company | #place]
-  }
-  v(2pt)
-  body
-  v(4pt)
+  block(breakable: false)[
+    grid(
+      columns: (1fr, auto),
+      gutter: 8pt,
+      [#text(weight: "bold")[#title]],
+      [#text(weight: "bold")[#period]],
+    )
+    if place == "" {
+      text(weight: "bold")[#company]
+    } else {
+      text(weight: "bold")[#company | #place]
+    }
+    v(2pt)
+    body
+    v(3pt)
+  ]
 }
 
-#align(center)[
-  #text(size: 18pt, weight: "bold")[Vitalii Hanych]
-  #v(2pt)
-  #text(size: 10pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
-  #v(3pt)
+#let project(title, url, description, tech) = {
+  block(breakable: false)[
+    *#title* — #link(url)[#url] \
+    #description *Tech:* #tech
+    v(3pt)
+  ]
+}
+
+#let contacts = [
   #personal.location | #personal.phone | #link("mailto:" + personal.email)[#personal.email]
   #linebreak()
   #link("https://linkedin.com/in/vitaliihanych")[linkedin.com/in/vitaliihanych] | #link("https://github.com/badwolf-vitalii")[github.com/badwolf-vitalii]
 ]
 
-#section("PROFESSIONAL SUMMARY")
-Senior .NET software engineer with 10+ years of experience building and maintaining desktop, web, and integration-heavy applications. Strong in C\#, WPF, ASP.NET Core, REST APIs, SQL, system integration, and production troubleshooting, with a focus on reliable, maintainable solutions.
+#block(breakable: false)[
+  #if show-photo {
+    grid(
+      columns: (1fr, 28mm),
+      column-gutter: 14pt,
+      align(center)[
+        #text(size: 20pt, weight: "bold")[Vitalii Hanych]
+        #v(2pt)
+        #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
+        #v(3pt)
+        #contacts
+      ],
+      align(right + horizon)[
+        #image(photo-path, width: 27mm, height: 32mm, fit: "cover")
+      ],
+    )
+  } else {
+    align(center)[
+      #text(size: 20pt, weight: "bold")[Vitalii Hanych]
+      #v(2pt)
+      #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
+      #v(3pt)
+      #contacts
+    ]
+  }
+]
 
-#section("TECHNICAL SKILLS")
-*Core:* C\# • .NET 8 / 6 • .NET Framework 4.8 • WPF • XAML \
-*Backend & Web:* ASP.NET Core • REST APIs • ASP.NET MVC • SignalR • WCF • Windows Services • IIS \
-*Data:* SQL Server • SQLite • Oracle • EF Core • Dapper • LINQ • T-SQL \
-*Integration & Engineering:* System Integration • Hardware & Peripheral Integration • Debugging & Diagnostics • Production Troubleshooting • Legacy System Modernization • Git • Jira • Unit Testing \
-*Additional:* JavaScript • Xamarin • C/C++ • Objective-C
+#block(breakable: false)[
+  #section("PROFESSIONAL SUMMARY")
+  Senior .NET software engineer with 10+ years of experience building and maintaining desktop, web, and integration-heavy applications. Strong in C\#, WPF, ASP.NET Core, REST APIs, SQL, system integration, and production troubleshooting, with a focus on reliable, maintainable solutions.
+]
 
-#section("PROFESSIONAL EXPERIENCE")
+#block(breakable: false)[
+  #section("TECHNICAL SKILLS")
+  *Core:* C\# • .NET 8 / 6 • .NET Framework 4.8 • WPF • XAML \
+  *Backend & Web:* ASP.NET Core • REST APIs • ASP.NET MVC • SignalR • WCF • Windows Services • IIS \
+  *Data:* SQL Server • SQLite • Oracle • EF Core • Dapper • LINQ • T-SQL \
+  *Integration & Engineering:* System Integration • Hardware & Peripheral Integration • Debugging & Diagnostics • Production Troubleshooting • Legacy System Modernization • Git • Jira • Unit Testing \
+  *Additional:* JavaScript • Xamarin • C/C++ • Objective-C
+]
 
-#role(
-  "Senior Software Developer",
-  "Jan 2021 – Present",
-  "A.E.P. Ticketing Solutions S.R.L.",
-  "Italy",
-  [
-    - Develop and maintain C\#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
-    - Build WPF applications and integrate software with POS terminals, printers, coin devices, card readers, and other external hardware/services.
-    - Investigate production incidents across applications, services, devices, and communication layers; improve reliability, logging, error handling, and diagnostics.
-    - Work with SQL Server and Oracle, Git, Jira, unit testing, IIS/Windows Services, deployments, maintenance, and legacy-system modernization.
-  ]
-)
+#block(breakable: false)[
+  #section("PROFESSIONAL EXPERIENCE")
+  #role(
+    "Senior Software Developer",
+    "Jan 2021 – Present",
+    "A.E.P. Ticketing Solutions S.R.L.",
+    "Italy",
+    [
+      - Develop and maintain C\#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
+      - Build WPF applications and integrate software with POS terminals, printers, coin devices, card readers, and other external hardware/services.
+      - Investigate production incidents across applications, services, devices, and communication layers; improve reliability, logging, error handling, and diagnostics.
+      - Work with SQL Server and Oracle, Git, Jira, unit testing, IIS/Windows Services, deployments, maintenance, and legacy-system modernization.
+    ]
+  )
+]
 
 #role(
   "Software Engineer / Software Engineer (Ext.)",
@@ -100,22 +140,35 @@ Senior .NET software engineer with 10+ years of experience building and maintain
   ]
 )
 
-#section("SELECTED PROJECTS")
+#block(breakable: false)[
+  #section("SELECTED PROJECTS")
+  #project(
+    "Bad Wolf Quiz",
+    "https://github.com/badwolf-vitalii/BadWolfQuiz",
+    "Real-time multimedia quiz platform with host-controlled games, player lobbies, buzzer flows, media-rich questions, and persistent game state.",
+    "ASP.NET Core • SignalR • EF Core • SQLite",
+  )
+]
 
-*Bad Wolf Quiz* — #link("https://github.com/badwolf-vitalii/BadWolfQuiz")[github.com/badwolf-vitalii/BadWolfQuiz] \
-Real-time multimedia quiz platform with host-controlled games, player lobbies, buzzer flows, media-rich questions, and persistent game state. *Tech:* ASP.NET Core • SignalR • EF Core • SQLite
+#project(
+  "NoteKeeper",
+  "https://github.com/badwolf-vitalii/NoteKeeper",
+  "Personal knowledge and time-management app with rich block-based notes, projects, tags, advanced filtering/search, localization, and time tracking.",
+  "ASP.NET Core 8 • EF Core • SQLite • JavaScript",
+)
 
-#v(4pt)
-*NoteKeeper* — #link("https://github.com/badwolf-vitalii/NoteKeeper")[github.com/badwolf-vitalii/NoteKeeper] \
-Personal knowledge and time-management app with rich block-based notes, projects, tags, advanced filtering/search, localization, and time tracking. *Tech:* ASP.NET Core 8 • EF Core • SQLite • JavaScript
+#project(
+  "CrybbBot",
+  "https://github.com/badwolf-vitalii/CrybbBot",
+  "WPF desktop app for composing, scheduling, managing, and sending structured Slack messages across multiple channels.",
+  ".NET 6 • WPF • Slack API • Dapper • SQLite",
+)
 
-#v(4pt)
-*CrybbBot* — #link("https://github.com/badwolf-vitalii/CrybbBot")[github.com/badwolf-vitalii/CrybbBot] \
-WPF desktop app for composing, scheduling, managing, and sending structured Slack messages across multiple channels. *Tech:* .NET 6 • WPF • Slack API • Dapper • SQLite
+#block(breakable: false)[
+  #section("EDUCATION & LANGUAGES")
+  *Bachelor's Degree in Software Engineering* — Lviv Polytechnic National University, Ukraine (2008–2012) \
+  *NVQ Level 3, Programming for Computers and Automated Systems* — Chervonograd State College, Ukraine (2004–2008)
 
-#section("EDUCATION & LANGUAGES")
-*Bachelor's Degree in Software Engineering* — Lviv Polytechnic National University, Ukraine (2008–2012) \
-*NVQ Level 3, Programming for Computers and Automated Systems* — Chervonograd State College, Ukraine (2004–2008)
-
-#v(4pt)
-*Languages:* Ukrainian — Native • Italian — C1 • English — B2 • Russian — C2
+  #v(3pt)
+  *Languages:* Ukrainian — Native • Italian — C1 • English — B2 • Russian — C2
+]

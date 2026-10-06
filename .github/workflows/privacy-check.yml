@@ -20,6 +20,11 @@ jobs:
             exit 1
           fi
 
+          if [ -n "$(git ls-files 'photo.jpg' 'photo.jpeg' 'photo.png' 'photo.webp')" ]; then
+            echo "Local photo files must not be committed."
+            exit 1
+          fi
+
           if [ -n "$(git ls-files '*.pdf')" ]; then
             echo "Generated PDF files must not be committed."
             exit 1

@@ -1,5 +1,9 @@
 # Local private data
 /personal.yaml
+/photo.jpg
+/photo.jpeg
+/photo.png
+/photo.webp
 
 # Generated output
 /output/

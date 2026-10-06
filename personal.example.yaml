@@ -1,3 +1,5 @@
 location: "City, Country"
 phone: "+00 000 0000000"
 email: "name@example.com"
+show_photo: false
+photo_path: "photo.jpg"
