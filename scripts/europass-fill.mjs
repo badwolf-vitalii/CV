@@ -671,7 +671,7 @@ async function fillPersonal(page) {
 
   await fillAny(scope, ['Email', 'Email address', 'Indirizzo e-mail'], data.contact.email, { optional: true });
   await fillPhoneNumber(page, scope, data.contact.phone);
-  await fillAddress(page, scope);
+  console.log('  - Personal address: skipped (optional in Europass)');
   await fillAny(scope, ['Website', 'LinkedIn', 'Sito web'], data.contact.linkedin, { optional: true });
 
   const aboutEditor = scope.locator(
@@ -692,7 +692,7 @@ async function fillPersonal(page) {
 
   if (!(await clickSave(page))) {
     await pressEnter(
-      'Personal information is still invalid. In Europass, complete any red required field (normally Address > Country = Italy), then press Enter here.',
+      'Personal information is still invalid. Complete any red required field shown by Europass, then press Enter here.',
     );
 
     if (!(await clickSave(page))) {
@@ -767,17 +767,15 @@ async function fillWork(page) {
       { page },
     );
 
-    console.log('     - City');
+    console.log('     - Location');
     await fillAny(
       scope,
       ['City', 'Town', 'Città', 'Comune'],
-      job.location.city,
+      job.location.display || job.location.city,
       { optional: true, page },
     );
 
     await dismissAutocomplete(page);
-    console.log('     - Country');
-    await selectCountry(page, scope, job.location.country, { optional: true });
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], job.start, { optional: true });
     if (job.end) {
       await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], job.end, { optional: true });
@@ -928,7 +926,7 @@ async function fillEducation(page) {
       item.institution,
       { page },
     );
-    await selectCountry(page, scope, item.country, { optional: true });
+    // Country intentionally omitted: Europass uses the same fragile custom dropdown here.
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], item.start, { optional: true });
     await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], item.end, { optional: true });
     if (!(await clickSave(page))) {
