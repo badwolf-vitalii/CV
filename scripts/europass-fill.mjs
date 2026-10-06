@@ -661,6 +661,27 @@ async function ensureFormOpen(page, autoButtons, manualMessage) {
   await pressEnter(manualMessage);
 }
 
+async function closeProfilePictureEditor(page) {
+  const cancel = page.getByRole('button', { name: /^Cancel$|^Annulla$/i }).last();
+  if (await visible(cancel)) {
+    await cancel.click().catch(() => {});
+    await page.waitForTimeout(200);
+    return;
+  }
+
+  const close = page.getByRole('button', {
+    name: /Close|Chiudi/i,
+  }).last();
+  if (await visible(close)) {
+    await close.click().catch(() => {});
+    await page.waitForTimeout(200);
+    return;
+  }
+
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(200);
+}
+
 async function uploadProfilePhoto(page) {
   if (!data.contact.showPhoto || !data.contact.photoPath) return true;
 
@@ -678,20 +699,17 @@ async function uploadProfilePhoto(page) {
   console.log('  - Opening profile picture editor');
   await editButton.click();
 
-  const dialog = page.locator('#editPictureModal').first();
+  // The <eui-dialog id="editPictureModal"> host itself has no visible box.
+  // Wait for the actual visible controls rendered inside the modal instead.
+  const selectFileButton = page.getByRole('button', {
+    name: /^Select file$|^Seleziona file$/i,
+  }).last();
+
   try {
-    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    await selectFileButton.waitFor({ state: 'visible', timeout: 5000 });
   } catch {
-    console.log('  ! Profile picture dialog did not open.');
-    return false;
-  }
-
-  const selectFileButton = dialog.getByRole('button', {
-    name: /Select file|Seleziona file/i,
-  }).first();
-
-  if (!(await visible(selectFileButton))) {
-    console.log('  ! Select file button was not found in the profile picture dialog.');
+    console.log('  ! Profile picture dialog controls did not appear.');
+    await closeProfilePictureEditor(page);
     return false;
   }
 
@@ -704,10 +722,16 @@ async function uploadProfilePhoto(page) {
     await chooser.setFiles(data.contact.photoPath);
   } catch (error) {
     console.log(`  ! Could not choose the profile photo file: ${error.message}`);
+    await closeProfilePictureEditor(page);
     return false;
   }
 
-  const saveButton = dialog.getByRole('button', { name: /^Save$|^Salva$/i }).first();
+  // Scope Save to the visible modal container that contains Select file,
+  // so we do not accidentally pick the Personal information Save button.
+  const modalScope = selectFileButton.locator(
+    'xpath=ancestor::*[.//button[normalize-space(.)="Save" or normalize-space(.)="Salva"]][1]',
+  );
+  const saveButton = modalScope.getByRole('button', { name: /^Save$|^Salva$/i }).first();
 
   try {
     await saveButton.waitFor({ state: 'visible', timeout: 5000 });
@@ -719,21 +743,24 @@ async function uploadProfilePhoto(page) {
 
     if (await saveButton.isDisabled().catch(() => true)) {
       console.log('  ! Profile picture Save button is still disabled after file selection.');
+      await closeProfilePictureEditor(page);
       return false;
     }
   } catch {
     console.log('  ! Profile picture Save button was not found.');
+    await closeProfilePictureEditor(page);
     return false;
   }
 
   console.log('  - Saving profile photo');
   await saveButton.click();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(300);
 
   try {
-    await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+    await selectFileButton.waitFor({ state: 'hidden', timeout: 5000 });
   } catch {
     console.log('  ! Profile picture dialog did not close after Save.');
+    await closeProfilePictureEditor(page);
     return false;
   }
 
