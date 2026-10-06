@@ -376,6 +376,7 @@ async function selectPrimeNgText(page, control, values) {
     if (option) {
       await option.click({ force: true });
       await page.waitForTimeout(150);
+      return true;
     } else {
       // Virtualised lists may not expose the option node until keyboard
       // navigation. After filtering, the first real result is the target.
@@ -1014,13 +1015,14 @@ async function languageSectionScope(page) {
 }
 
 function languageNames(name) {
-  const aliases = {
-    Ukrainian: ['Ukrainian', 'ucraino', 'український'],
-    Italian: ['Italian', 'italiano'],
-    English: ['English', 'inglese'],
-    Russian: ['Russian', 'russo'],
+  const labels = {
+    Ukrainian: { en: 'Ukrainian', it: 'ucraino' },
+    Italian: { en: 'Italian', it: 'italiano' },
+    English: { en: 'English', it: 'inglese' },
+    Russian: { en: 'Russian', it: 'russo' },
   };
-  return aliases[name] || [name];
+
+  return [labels[name]?.[lang] || name];
 }
 
 async function selectLabeledChoiceAt(page, scope, labels, index, values) {
@@ -1034,10 +1036,16 @@ async function selectLabeledChoiceAt(page, scope, labels, index, values) {
         await control.selectOption({ label: String(value) });
         return true;
       } catch {
-        // Try the next alias.
+        // Try the next label.
       }
     }
     return false;
+  }
+
+  if (tag === 'input' || tag === 'textarea') {
+    await control.click().catch(() => {});
+    await control.fill('').catch(() => {});
+    await page.waitForTimeout(100);
   }
 
   return selectPrimeNgText(page, control, values);
