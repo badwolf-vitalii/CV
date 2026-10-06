@@ -440,6 +440,78 @@ async function fillPhoneNumber(page, scope, value) {
   );
 }
 
+async function selectPersonalAddressCountry(page, scope, country) {
+  const control = scope.locator('#perso-info-country-0').first();
+  if (!(await visible(control))) return false;
+
+  const names = country.toLowerCase() === 'italy'
+    ? ['Italy', 'Italia']
+    : [country];
+
+  await dismissAutocomplete(page);
+  await closeOpenOverlays(page);
+  await control.scrollIntoViewIfNeeded().catch(() => {});
+  await control.click({ force: true, timeout: 3000 });
+
+  // Do not inspect the overlay immediately. PrimeNG creates it asynchronously,
+  // and the previous implementation often looked too early and saw zero
+  // elements even though the dropdown appeared a moment later.
+  const filter = page.locator(
+    '.p-select-overlay input[placeholder*="France" i], ' +
+    '.p-select-overlay input.p-select-filter, ' +
+    '.p-dropdown-panel input[placeholder*="France" i], ' +
+    '.p-dropdown-panel input.p-dropdown-filter'
+  ).last();
+
+  try {
+    await filter.waitFor({ state: 'visible', timeout: 3000 });
+  } catch {
+    // If this PrimeNG build does not expose a filter input, continue with
+    // keyboard search after opening the combobox.
+  }
+
+  for (const name of names) {
+    const filterVisible = await visible(filter);
+
+    if (filterVisible) {
+      await filter.click({ force: true });
+      await filter.fill('');
+      await filter.type(String(name), { delay: 40 });
+    } else {
+      await page.keyboard.type(String(name), { delay: 40 }).catch(() => {});
+    }
+
+    const option = page.locator('li[role="option"]').filter({
+      hasText: new RegExp(`^\\s*${escapeRegex(name)}\\s*$`, 'i'),
+    }).last();
+
+    try {
+      await option.waitFor({ state: 'visible', timeout: 3000 });
+      await option.evaluate((el) => el.click());
+    } catch {
+      if (filterVisible) {
+        await filter.press('ArrowDown').catch(() => {});
+        await filter.press('Enter').catch(() => {});
+      } else {
+        await page.keyboard.press('ArrowDown').catch(() => {});
+        await page.keyboard.press('Enter').catch(() => {});
+      }
+    }
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const selectedText = normalize(await control.textContent()).toLowerCase();
+      if (selectedText.includes(String(name).toLowerCase())) return true;
+      await page.waitForTimeout(100);
+    }
+
+    await closeOpenOverlays(page);
+    await control.click({ force: true, timeout: 3000 }).catch(() => {});
+  }
+
+  await closeOpenOverlays(page);
+  return false;
+}
+
 async function fillAddress(page, scope) {
   const location = data.contact.location;
   if (!location?.city && !location?.country) return;
@@ -456,13 +528,8 @@ async function fillAddress(page, scope) {
     await cityField.fill(location.city);
   }
 
-  const countryControl = scope.locator('#perso-info-country-0').first();
-  if (location.country && await visible(countryControl)) {
-    const countryNames = location.country.toLowerCase() === 'italy'
-      ? ['Italy', 'Italia']
-      : [location.country];
-
-    const selected = await selectPrimeNgText(page, countryControl, countryNames);
+  if (location.country) {
+    const selected = await selectPersonalAddressCountry(page, scope, location.country);
     if (!selected) {
       console.log(`  ! Could not select address country: ${location.country}`);
     } else {
