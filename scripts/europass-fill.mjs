@@ -1147,25 +1147,35 @@ async function selectAutocompleteExact(page, control, value) {
   await control.scrollIntoViewIfNeeded().catch(() => {});
 
   try {
-    await control.click({ timeout: 1200 });
+    await control.click({ timeout: 800 });
     await control.fill('');
-    await control.type(String(value), { delay: 15 });
+    await control.type(String(value), { delay: 10 });
   } catch {
     return false;
   }
 
-  const option = page.getByRole('option', {
-    name: new RegExp('^' + escapeRegex(String(value)) + '$', 'i'),
+  // Europass language autocomplete renders a visible list immediately.
+  // Use its concrete <li> text instead of waiting on accessibility metadata.
+  const exactOption = page.locator(
+    '.p-autocomplete-overlay:visible li, [role="listbox"]:visible li, [role="listbox"]:visible [role="option"]',
+  ).filter({
+    hasText: new RegExp('^\\s*' + escapeRegex(String(value)) + '\\s*$', 'i'),
   }).first();
 
   try {
-    await option.waitFor({ state: 'visible', timeout: 1200 });
-    await option.click({ timeout: 1200 });
-    return true;
+    await exactOption.waitFor({ state: 'visible', timeout: 700 });
+    await exactOption.click({ force: true, timeout: 700 });
   } catch {
-    await page.keyboard.press('Escape').catch(() => {});
-    return false;
+    // The first suggestion is the exact language for values such as Italian,
+    // English and Russian. Keyboard selection avoids multi-second retries.
+    await control.press('ArrowDown').catch(() => {});
+    await control.press('Enter').catch(() => {});
   }
+
+  await page.waitForTimeout(60);
+  const actual = normalize(await control.inputValue().catch(() => ''));
+  await page.keyboard.press('Escape').catch(() => {});
+  return actual.toLowerCase() === String(value).toLowerCase();
 }
 
 async function selectCefrLevel(page, control, level) {
@@ -1177,6 +1187,7 @@ async function selectCefrLevel(page, control, level) {
   if (tag === 'select') {
     const options = control.locator('option');
     const count = await options.count();
+
     for (let i = 0; i < count; i += 1) {
       const option = options.nth(i);
       const text = normalize(await option.textContent());
@@ -1188,31 +1199,40 @@ async function selectCefrLevel(page, control, level) {
         }
       }
     }
+
     return false;
   }
 
-  try {
-    await control.click({ timeout: 1200 });
-  } catch {
-    return false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await control.click({ force: true, timeout: 600 });
+    } catch {
+      continue;
+    }
+
+    const option = page.locator(
+      '.p-select-overlay:visible [role="option"], .p-dropdown-panel:visible [role="option"], [role="listbox"]:visible [role="option"]',
+    ).filter({
+      hasText: new RegExp('^\\s*' + escapeRegex(String(level)) + '\\s*(?:-|$)', 'i'),
+    }).first();
+
+    try {
+      await option.waitFor({ state: 'visible', timeout: 600 });
+      await option.click({ force: true, timeout: 600 });
+      await page.waitForTimeout(50);
+    } catch {
+      await page.keyboard.press('Escape').catch(() => {});
+      continue;
+    }
+
+    const selectedText = normalize(await control.textContent()).toLowerCase();
+    if (selectedText.includes(String(level).toLowerCase())) return true;
   }
 
-  const option = page.getByRole('option', {
-    name: new RegExp('^' + escapeRegex(String(level)) + '(?: -|$)', 'i'),
-  }).first();
-
-  try {
-    await option.waitFor({ state: 'visible', timeout: 1200 });
-    await option.click({ timeout: 1200 });
-    await page.waitForTimeout(60);
-  } catch {
-    await page.keyboard.press('Escape').catch(() => {});
-    return false;
-  }
-
-  const selectedText = normalize(await control.textContent()).toLowerCase();
-  return selectedText.includes(String(level).toLowerCase());
+  await page.keyboard.press('Escape').catch(() => {});
+  return false;
 }
+
 async function selectLabeledChoiceAt(page, scope, labels, index, values) {
   const control = await exactLabeledControl(scope, labels, index);
   if (!control) return false;
@@ -1240,10 +1260,504 @@ async function selectLabeledChoiceAt(page, scope, labels, index, values) {
   return selectPrimeNgText(page, control, values);
 }
 
-async function languageEntryScope(scope, index) {
+async function languageInput(scope, label, index = 0) {
+  const labels = scope.locator('label').filter({
+    hasText: new RegExp('^\\s*' + escapeRegex(label) + '\\s*
   const languageControl = await exactLabeledControl(
     scope,
     ['Other language', 'Altra lingua'],
+    index,
+  );
+
+  if (!languageControl) return scope;
+
+  const entry = languageControl.locator(
+    'xpath=ancestor::*[.//*[normalize-space(.)="Listening" or normalize-space(.)="Ascolto"] and .//*[normalize-space(.)="Reading" or normalize-space(.)="Lettura"] and .//*[contains(normalize-space(.),"Spoken interaction") or contains(normalize-space(.),"Interazione orale")]][1]',
+  );
+
+  if (await visible(entry)) return entry;
+  return scope;
+}
+
+async function visibleChoiceControls(scope) {
+  const controls = scope.locator('select, [role="combobox"]');
+  const count = await controls.count();
+  const result = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const control = controls.nth(i);
+    if (!(await visible(control))) continue;
+
+    // "Other language" is an autocomplete <input role="combobox">.
+    // It must never be treated as one of the five CEFR level dropdowns.
+    const tag = await control.evaluate((el) => el.tagName.toLowerCase());
+    if (tag === 'input' || tag === 'textarea') continue;
+    if (await isTextEntry(control)) continue;
+
+    result.push(control);
+  }
+
+  return result;
+}
+
+async function selectLanguageSkillLevels(page, entryScope, item) {
+  const skills = [
+    ['Listening', item.skills?.listening || item.level],
+    ['Reading', item.skills?.reading || item.level],
+    ['Spoken interaction', item.skills?.spokenInteraction || item.level],
+    ['Spoken production', item.skills?.spokenProduction || item.level],
+    ['Writing', item.skills?.writing || item.level],
+  ];
+
+  const controls = await visibleChoiceControls(entryScope);
+
+  // In the Europass language-entry form the language itself is an autocomplete
+  // text input; the five visible choice controls are exactly the CEFR fields.
+  if (controls.length === 5) {
+    for (let i = 0; i < skills.length; i += 1) {
+      const [label, level] = skills[i];
+      console.log(`    - ${label}: ${level}`);
+
+      const selected = await selectCefrLevel(page, controls[i], level);
+      if (!selected) {
+        console.log(`      ! Could not select ${label} level: ${level}`);
+      }
+    }
+    return;
+  }
+
+  console.log(`    ! Expected 5 CEFR dropdowns, found ${controls.length}; falling back to label lookup.`);
+  // Fallback for a future Europass DOM change: resolve each field by label.
+  for (const [label, level] of skills) {
+    console.log(`    - ${label}: ${level}`);
+    const aliases = {
+      Listening: ['Listening', 'Ascolto'],
+      Reading: ['Reading', 'Lettura'],
+      'Spoken interaction': ['Spoken interaction', 'Interazione orale'],
+      'Spoken production': ['Spoken production', 'Produzione orale'],
+      Writing: ['Writing', 'Scrittura'],
+    }[label];
+
+    const control = await exactLabeledControl(entryScope, aliases, 0);
+    const selected = control
+      ? await selectCefrLevel(page, control, level)
+      : false;
+
+    if (!selected) {
+      console.log(`      ! Could not select ${label} level: ${level}`);
+    }
+  }
+}
+
+async function openLanguageSkillsForm(page) {
+  let scope = await languageSectionScope(page);
+  if (scope) return scope;
+
+  const section = await sectionCard(page, T.languageSection);
+  if (section) {
+    const editButton = section.locator(
+      'button[aria-label*="Edit the content of the section Language skills" i], button[aria-label*="Edit the content of the section Competenze linguistiche" i]',
+    ).first();
+
+    if (await visible(editButton)) {
+      await editButton.click();
+      await page.waitForTimeout(500);
+      scope = await languageSectionScope(page);
+      if (scope) return scope;
+    }
+  }
+
+  await pressEnter(
+    `Open "${T.languageSection[0]}" so that the Mother tongue and Other language fields are visible.`,
+  );
+
+  return await languageSectionScope(page);
+}
+
+async function fillLanguages(page) {
+  console.log(`\n[4/6] Languages (${data.languages.length} entries)`);
+
+  let languageScope = await openLanguageSkillsForm(page);
+  if (!languageScope) {
+    console.log('  ! Language skills form was not detected. Skipping automatic language filling.');
+    return;
+  }
+
+  const nativeLanguage = data.languages.find((item) => /native/i.test(item.level));
+  const otherLanguages = data.languages.filter((item) => !/native/i.test(item.level));
+
+  if (nativeLanguage) {
+    console.log(`  Mother tongue: ${nativeLanguage.language}`);
+    const motherInput = await languageInput(
+      languageScope,
+      lang === 'it' ? 'Lingua madre' : 'Mother tongue',
+      0,
+    );
+
+    const selected = motherInput
+      ? await selectAutocompleteExact(page, motherInput, languageNames(nativeLanguage.language)[0])
+      : false;
+
+    if (!selected) {
+      console.log(`  ! Could not select mother tongue: ${nativeLanguage.language}`);
+    }
+  }
+
+  for (const [index, item] of otherLanguages.entries()) {
+    console.log(`  Other language ${index + 1}: ${item.language} - ${item.level}`);
+
+    // Refresh the section locator after every Angular re-render.
+    languageScope = await languageSectionScope(page) ?? languageScope;
+
+    if (index > 0) {
+      const addButton = languageScope.getByRole('button', {
+        name: /Add another language|Aggiungi un'altra lingua/i,
+      }).first();
+
+      if (await visible(addButton)) {
+        await addButton.click();
+        await page.waitForTimeout(120);
+        languageScope = await languageSectionScope(page) ?? languageScope;
+      } else {
+        console.log('  ! "Add another language" button was not found.');
+        break;
+      }
+    }
+
+    const otherInput = await languageInput(
+      languageScope,
+      lang === 'it' ? 'Altra lingua' : 'Other language',
+      index,
+    );
+
+    const selected = otherInput
+      ? await selectAutocompleteExact(page, otherInput, languageNames(item.language)[0])
+      : false;
+
+    if (!selected) {
+      console.log(`  ! Could not select language: ${item.language}`);
+      continue;
+    }
+
+    languageScope = await languageSectionScope(page) ?? languageScope;
+    const entryScope = await languageEntryScope(languageScope, index);
+    await selectLanguageSkillLevels(page, entryScope, item);
+  }
+
+  if (!(await clickSave(page))) {
+    await pressEnter('Save the Language skills section in Europass, then return here.');
+  }
+}
+
+async function fillSkills(page) {
+  console.log('\n[5/6] Technical / digital skills');
+  const skillsText = data.skills.map((x) => `${x.category}: ${x.value}`).join('\n');
+  if (await clickText(page, T.digitalSection)) {
+    await page.waitForTimeout(400);
+    const scope = await currentScope(page);
+    const filled = await fillAny(scope, ['Description', 'Digital skills', 'Skills', 'Descrizione', 'Competenze digitali', 'Competenze'], skillsText, { optional: true });
+    if (filled) await clickSave(page);
+  } else {
+    console.log('  ! Skills section was not auto-opened. Europass may use the profile skill picker here.');
+    console.log('  ! No typing is required: the script will keep the exact skills text in the console for copy/paste if needed.');
+    console.log(`\n${skillsText}\n`);
+  }
+}
+
+async function currentProjectForm(page) {
+  const title = await fieldByLabel(
+    page,
+    ['Title', 'Titolo'],
+    { textEntryOnly: true },
+  );
+
+  if (!title || !(await visible(title))) return null;
+
+  const form = title.locator(
+    'xpath=ancestor::*[.//button[normalize-space(.)="Save" or normalize-space(.)="Salva"]][1]',
+  );
+
+  if (await visible(form)) return form;
+  return page;
+}
+
+async function ensureProjectsSection(page) {
+  let section = await sectionCard(page, T.projectSection);
+  if (section) return section;
+
+  const addSection = page.locator('#profile-add-section').first();
+  if (!(await visible(addSection))) {
+    console.log('  ! Add new section button was not found.');
+    return null;
+  }
+
+  console.log('  - Creating Projects section');
+  await addSection.click();
+  await page.waitForTimeout(300);
+
+  const dialog = page.getByRole('dialog').filter({
+    hasText: /Create a new section|Crea una nuova sezione/i,
+  }).last();
+
+  if (!(await visible(dialog))) {
+    console.log('  ! Create a new section dialog did not open.');
+    return null;
+  }
+
+  // This dialog uses a native <select> with stable IDs.
+  // Prefer those IDs over accessible-label lookup because the Europass
+  // overlay currently does not expose the label relationship reliably.
+  const sectionType = page.locator('#new-section-banner-select').last();
+
+  try {
+    await sectionType.waitFor({ state: 'visible', timeout: 5000 });
+  } catch {
+    console.log('  ! Section type selector was not found.');
+    return null;
+  }
+
+  try {
+    await sectionType.selectOption({ value: '9: projects' });
+  } catch {
+    try {
+      await sectionType.selectOption({ label: 'Projects' });
+    } catch {
+      console.log('  ! Projects option was not found in the section type selector.');
+      return null;
+    }
+  }
+
+  const addSectionButton = page.locator('#add-section').last();
+
+  try {
+    await addSectionButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (!(await addSectionButton.isDisabled().catch(() => true))) break;
+      await page.waitForTimeout(100);
+    }
+
+    if (await addSectionButton.isDisabled().catch(() => true)) {
+      console.log('  ! Add section button did not become enabled.');
+      return null;
+    }
+
+    console.log('  - Adding Projects section');
+    await addSectionButton.click();
+    await page.waitForTimeout(600);
+  } catch {
+    console.log('  ! Add section button was not found.');
+    return null;
+  }
+
+  section = await sectionCard(page, T.projectSection);
+  if (section) return section;
+
+  await pressEnter(
+    'Projects is selected in the "Create a new section" dialog. Finish creating the section in Europass, then return here.',
+  );
+
+  return await sectionCard(page, T.projectSection);
+}
+
+async function openProjectForm(page, project) {
+  let openForm = await currentProjectForm(page);
+  if (openForm) return openForm;
+
+  const editButton = await existingRecordEditButton(
+    page,
+    project.name,
+    ['Projects', 'Project', 'Progetti', 'Progetto'],
+  );
+
+  if (editButton) {
+    await editButton.click();
+    await page.waitForTimeout(150);
+    return await currentProjectForm(page) ?? await currentScope(page);
+  }
+
+  const section = await ensureProjectsSection(page);
+  if (!section) return null;
+
+  // Creating the Projects section opens the first project form immediately.
+  openForm = await currentProjectForm(page);
+  if (openForm) return openForm;
+
+  const addButton = section.getByRole('button', {
+    name: /^Add new$|^Add project$|^Aggiungi$|^Aggiungi progetto$/i,
+  }).first();
+
+  if (await visible(addButton)) {
+    await addButton.click();
+    await page.waitForTimeout(150);
+    return await currentProjectForm(page) ?? await currentScope(page);
+  }
+
+  const ariaAddButton = section.locator(
+    'button[aria-label*="Add new" i], button[aria-label*="Add project" i], button[aria-label*="Aggiungi" i]',
+  ).first();
+
+  if (await visible(ariaAddButton)) {
+    await ariaAddButton.click();
+    await page.waitForTimeout(150);
+    return await currentProjectForm(page) ?? await currentScope(page);
+  }
+
+  await pressEnter(
+    `Open the Projects section and choose Add new for: ${project.name}.`,
+  );
+
+  return await currentProjectForm(page) ?? await currentScope(page);
+}
+
+async function fillProjects(page) {
+  console.log(`\n[6/6] Projects (${data.projects.length} entries)`);
+
+  const section = await ensureProjectsSection(page);
+  if (!section) {
+    console.log('  ! Projects section could not be created.');
+    return;
+  }
+
+  for (const [index, project] of data.projects.entries()) {
+    console.log(`  ${index + 1}. ${project.name}`);
+
+    const scope = await openProjectForm(page, project);
+    if (!scope) {
+      console.log(`  ! Project form could not be opened for: ${project.name}`);
+      continue;
+    }
+
+    const nameFilled = await fillAny(
+      scope,
+      ['Project name', 'Name', 'Title', 'Titolo del progetto', 'Nome', 'Titolo'],
+      project.name,
+      { optional: true, page },
+    );
+
+    const descriptionFilled = await fillAny(
+      scope,
+      ['Description', 'Descrizione'],
+      `${project.description}\nTech: ${project.tech}`,
+      { optional: true, page },
+    );
+
+    const linkFilled = await fillAny(
+      scope,
+      ['Link to file or video', 'Website', 'URL', 'Link', 'Sito web'],
+      project.url,
+      { optional: true, page },
+    );
+
+    if (linkFilled) {
+      const addLinkButton = scope.getByRole('button', {
+        name: /^Add$|^Aggiungi$/i,
+      }).last();
+
+      if (await visible(addLinkButton)) {
+        await addLinkButton.click().catch(() => {});
+        await page.waitForTimeout(80);
+      }
+    }
+
+    if (!nameFilled && !descriptionFilled) {
+      await pressEnter(
+        `The project form for "${project.name}" is open, but its fields were not recognised. Fill or inspect this form, then press Enter.`,
+      );
+    }
+
+    if (!(await clickSave(page))) {
+      await pressEnter(
+        `Save the project "${project.name}" in Europass, then return here.`,
+      );
+    }
+  }
+}
+
+async function saveDebug(page, reason) {
+  fs.mkdirSync(debugDir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const screenshot = path.join(debugDir, `${stamp}.png`);
+  const html = path.join(debugDir, `${stamp}.html`);
+  await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+  fs.writeFileSync(html, await page.content().catch(() => ''), 'utf8');
+  console.error(`\nAutomation stopped: ${reason}`);
+  console.error(`Debug files: ${screenshot} and ${html}`);
+}
+
+let context;
+try {
+  fs.mkdirSync(profileDir, { recursive: true });
+
+  context = await chromium.launchPersistentContext(profileDir, {
+    channel: 'msedge',
+    headless: false,
+    viewport: null,
+    chromiumSandbox: true,
+    args: ['--start-maximized'],
+  });
+
+  const pages = context.pages();
+  const page = pages[0] ?? await context.newPage();
+  page.setDefaultTimeout(8000);
+  await page.goto(editorUrl, { waitUntil: 'domcontentloaded' });
+
+  console.log('Europass automation started in Microsoft Edge.');
+  console.log('The browser profile is stored locally in .europass-browser-profile and is ignored by Git.');
+  console.log('No password or EU Login credential is read by the script.');
+  console.log(`CV data loaded from cv.typ and personal.yaml for ${data.name}.`);
+
+  await pressEnter(
+    'Log in if Europass asks you to. Create/open a blank CV and stay on the content-editing step. The script will fill fields from there.',
+  );
+
+  await fillPersonal(page);
+  await fillWork(page);
+  await fillEducation(page);
+  await fillLanguages(page);
+  await fillSkills(page);
+  await fillProjects(page);
+
+  console.log('\nAutomatic filling pass completed.');
+  console.log('Review the CV in Europass, choose the official template, and let Europass generate the PDF.');
+  await pressEnter('Keep the browser open for review. Press Enter here only when you are finished.');
+} catch (error) {
+  const page = context?.pages()?.[0];
+  if (page) await saveDebug(page, error?.stack || error?.message || String(error));
+  else console.error(error);
+  process.exitCode = 1;
+} finally {
+  await context?.close().catch(() => {});
+  rl.close();
+}
+, 'i'),
+  });
+
+  const count = await labels.count();
+  let visibleIndex = 0;
+
+  for (let i = 0; i < count; i += 1) {
+    const labelNode = labels.nth(i);
+    if (!(await labelNode.isVisible({ timeout: 150 }).catch(() => false))) continue;
+
+    const forId = await labelNode.getAttribute('for');
+    let input = forId
+      ? scope.locator('[id="' + forId.replaceAll('"', '\\"') + '"]').first()
+      : labelNode.locator('xpath=following::input[1]');
+
+    if (!(await input.isVisible({ timeout: 150 }).catch(() => false))) continue;
+
+    if (visibleIndex === index) return input;
+    visibleIndex += 1;
+  }
+
+  return null;
+}
+
+async function languageEntryScope(scope, index) {
+  const languageControl = await languageInput(
+    scope,
+    lang === 'it' ? 'Altra lingua' : 'Other language',
     index,
   );
 
