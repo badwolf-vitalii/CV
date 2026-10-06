@@ -15,6 +15,7 @@ const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=$
 const data = loadCvData(root);
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const pendingDownloadSaves = new Set();
+let successfulDownloadCount = 0;
 
 const T = {
   en: {
@@ -1875,6 +1876,7 @@ function attachDownloadHandler(page) {
 
         console.log(`\nDownload started: ${suggestedName}`);
         await download.saveAs(targetPath);
+        successfulDownloadCount += 1;
         console.log(`Downloaded file saved to: ${targetPath}`);
       } catch (error) {
         console.error(`\nCould not save downloaded file: ${error?.message || error}`);
@@ -1963,10 +1965,17 @@ try {
   console.log('\nAutomatic filling pass completed.');
   console.log('Review the CV in Europass, choose the official template, and let Europass generate the PDF.');
   console.log(`Any downloaded files will be copied to: ${outputDir}`);
-  await pressEnter(
-    'Download the PDF and wait until this console prints "Downloaded file saved to: ...". Then press Enter here when you are finished.',
-  );
-  await waitForPendingDownloads(700);
+  console.log('');
+  console.log('The script will NOT close Microsoft Edge anymore.');
+  console.log('Download the PDF and wait until this console prints "Downloaded file saved to: ...".');
+  console.log('When you are completely finished, close the Edge window yourself.');
+  console.log('The script will exit after the browser is closed.');
+
+  // Do not use Enter as a "finish" signal here. It is too easy to press Enter
+  // after the download has started but before Playwright has finished saveAs(),
+  // which closes the browser context underneath the download.
+  await context.waitForEvent('close');
+  await waitForPendingDownloads(0);
 } catch (error) {
   const page = context?.pages()?.[0];
   if (page) await saveDebug(page, error?.stack || error?.message || String(error));
@@ -1974,6 +1983,15 @@ try {
   process.exitCode = 1;
 } finally {
   await waitForPendingDownloads(300).catch(() => {});
-  await context?.close().catch(() => {});
+
+  // On the normal path the user closes Edge manually. Only try to close an
+  // still-open context after an error/early exit.
+  if (context) {
+    const pages = context.pages();
+    if (pages.length > 0) {
+      await context.close().catch(() => {});
+    }
+  }
+
   rl.close();
 }
