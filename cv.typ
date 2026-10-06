@@ -39,7 +39,7 @@
 
 #let project(title, url, description, tech) = {
   block(breakable: false)[
-    *#title* — #link(url)[#url] \
+    *#title* - #link(url)[#url] \
     #description *Tech:* #tech
     v(3pt)
   ]
@@ -59,7 +59,7 @@
       align(center)[
         #text(size: 20pt, weight: "bold")[Vitalii Hanych]
         #v(2pt)
-        #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
+        #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# | WPF | ASP.NET Core | REST APIs | SQL]
         #v(3pt)
         #contacts
       ],
@@ -71,7 +71,7 @@
     align(center)[
       #text(size: 20pt, weight: "bold")[Vitalii Hanych]
       #v(2pt)
-      #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# • WPF • ASP.NET Core • REST APIs • SQL]
+      #text(size: 11pt, weight: "bold")[.NET Software Engineer | C\# | WPF | ASP.NET Core | REST APIs | SQL]
       #v(3pt)
       #contacts
     ]
@@ -85,18 +85,18 @@
 
 #block(breakable: false)[
   #section("TECHNICAL SKILLS")
-  *Core:* C\# • .NET 8 / 6 • .NET Framework 4.8 • WPF • XAML \
-  *Backend & Web:* ASP.NET Core • REST APIs • ASP.NET MVC • SignalR • WCF • Windows Services • IIS \
-  *Data:* SQL Server • SQLite • Oracle • EF Core • Dapper • LINQ • T-SQL \
-  *Integration & Engineering:* System Integration • Hardware & Peripheral Integration • Debugging & Diagnostics • Production Troubleshooting • Legacy System Modernization • Git • Jira • Unit Testing \
-  *Additional:* JavaScript • Xamarin • C/C++ • Objective-C
+  *Core:* C\# | .NET 8 / 6 | .NET Framework 4.8 | WPF | XAML \
+  *Backend & Web:* ASP.NET Core | REST APIs | ASP.NET MVC | SignalR | WCF | Windows Services | IIS \
+  *Data:* SQL Server | SQLite | Oracle | EF Core | Dapper | LINQ | T-SQL \
+  *Integration & Engineering:* System Integration | Hardware & Peripheral Integration | Debugging & Diagnostics | Production Troubleshooting | Legacy System Modernization | Git | Jira | Unit Testing \
+  *Additional:* JavaScript | Xamarin | C/C++ | Objective-C
 ]
 
 #block(breakable: false)[
   #section("PROFESSIONAL EXPERIENCE")
   #role(
     "Senior Software Developer",
-    "Jan 2021 – Present",
+    "Jan 2021 - Present",
     "A.E.P. Ticketing Solutions S.R.L.",
     "Italy",
     [
@@ -110,7 +110,7 @@
 
 #role(
   "Software Engineer / Software Engineer (Ext.)",
-  "Jan 2018 – Jan 2021",
+  "Jan 2018 - Jan 2021",
   "Conduent Business Solutions Italia S.P.A.",
   "Vimodrone (MI), Italy",
   [
@@ -121,7 +121,7 @@
 
 #role(
   "Software Engineer",
-  "Jul 2017 – Jul 2019",
+  "Jul 2017 - Jul 2019",
   "Ulisse s.r.l.",
   "Milan, Italy",
   [
@@ -132,7 +132,7 @@
 
 #role(
   "Junior Software Developer",
-  "Mar 2011 – Jul 2013",
+  "Mar 2011 - Jul 2013",
   "ADVA SOFT",
   "Lviv, Ukraine",
   [
@@ -146,7 +146,7 @@
     "Bad Wolf Quiz",
     "https://github.com/badwolf-vitalii/BadWolfQuiz",
     "Real-time multimedia quiz platform with host-controlled games, player lobbies, buzzer flows, media-rich questions, and persistent game state.",
-    "ASP.NET Core • SignalR • EF Core • SQLite",
+    "ASP.NET Core | SignalR | EF Core | SQLite",
   )
 ]
 
@@ -154,21 +154,21 @@
   "NoteKeeper",
   "https://github.com/badwolf-vitalii/NoteKeeper",
   "Personal knowledge and time-management app with rich block-based notes, projects, tags, advanced filtering/search, localization, and time tracking.",
-  "ASP.NET Core 8 • EF Core • SQLite • JavaScript",
+  "ASP.NET Core 8 | EF Core | SQLite | JavaScript",
 )
 
 #project(
   "CrybbBot",
   "https://github.com/badwolf-vitalii/CrybbBot",
   "WPF desktop app for composing, scheduling, managing, and sending structured Slack messages across multiple channels.",
-  ".NET 6 • WPF • Slack API • Dapper • SQLite",
+  ".NET 6 | WPF | Slack API | Dapper | SQLite",
 )
 
 #block(breakable: false)[
   #section("EDUCATION & LANGUAGES")
-  *Bachelor's Degree in Software Engineering* — Lviv Polytechnic National University, Ukraine (2008–2012) \
-  *NVQ Level 3, Programming for Computers and Automated Systems* — Chervonograd State College, Ukraine (2004–2008)
+  *Bachelor's Degree in Software Engineering* - Lviv Polytechnic National University, Ukraine (2008-2012) \
+  *NVQ Level 3, Programming for Computers and Automated Systems* - Chervonograd State College, Ukraine (2004-2008)
 
   #v(3pt)
-  *Languages:* Ukrainian — Native • Italian — C1 • English — B2 • Russian — C2
+  *Languages:* Ukrainian - Native | Italian - C1 | English - B2 | Russian - C2
 ]
