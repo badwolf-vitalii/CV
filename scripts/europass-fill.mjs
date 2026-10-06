@@ -824,6 +824,93 @@ async function fillPersonal(page) {
   }
 }
 
+async function ensureSection(page, titles, sectionName, fallbackValue = null) {
+  let section = await sectionCard(page, titles);
+  if (section) return section;
+
+  const addSection = page.locator('#profile-add-section').first();
+  if (!(await visible(addSection))) {
+    console.log(`  ! Add new section button was not found for ${sectionName}.`);
+    return null;
+  }
+
+  console.log(`  - Creating ${sectionName} section`);
+  await addSection.click();
+
+  const sectionType = page.locator('#new-section-banner-select').last();
+
+  try {
+    await sectionType.waitFor({ state: 'visible', timeout: 3000 });
+  } catch {
+    console.log(`  ! Section type selector was not found for ${sectionName}.`);
+    return null;
+  }
+
+  let selected = false;
+  const options = sectionType.locator('option');
+  const optionCount = await options.count();
+
+  for (const title of titles) {
+    for (let i = 0; i < optionCount; i += 1) {
+      const option = options.nth(i);
+      const text = normalize(await option.textContent());
+
+      if (text.toLowerCase() !== String(title).toLowerCase()) continue;
+
+      const value = await option.getAttribute('value');
+      if (value === null) continue;
+
+      await sectionType.selectOption(value);
+      selected = true;
+      break;
+    }
+
+    if (selected) break;
+  }
+
+  if (!selected && fallbackValue) {
+    try {
+      await sectionType.selectOption({ value: fallbackValue });
+      selected = true;
+    } catch {
+      // Fall through to the clear error below.
+    }
+  }
+
+  if (!selected) {
+    console.log(`  ! ${sectionName} option was not found in the section selector.`);
+    return null;
+  }
+
+  const addSectionButton = page.locator('#add-section').last();
+
+  try {
+    await addSectionButton.waitFor({ state: 'visible', timeout: 2000 });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (!(await addSectionButton.isDisabled().catch(() => true))) break;
+      await page.waitForTimeout(50);
+    }
+
+    if (await addSectionButton.isDisabled().catch(() => true)) {
+      console.log(`  ! Add section button did not become enabled for ${sectionName}.`);
+      return null;
+    }
+
+    console.log(`  - Adding ${sectionName} section`);
+    await addSectionButton.click();
+    await page.waitForTimeout(250);
+  } catch {
+    console.log(`  ! Add section button was not found for ${sectionName}.`);
+    return null;
+  }
+
+  // Some section types immediately open their editor. In that state the
+  // section card may still be present, but callers also check the open form.
+  section = await sectionCard(page, titles);
+  return section ?? page;
+}
+
 async function openWorkForm(page, job) {
   const editButton = await existingRecordEditButton(
     page,
@@ -833,20 +920,43 @@ async function openWorkForm(page, job) {
 
   if (editButton) {
     await editButton.click();
-    await page.waitForTimeout(500);
-    return;
+    await page.waitForTimeout(180);
+    return await workFormScope(page);
   }
+
+  let scope = await workFormScope(page);
+  if (scope) return scope;
+
+  const section = await ensureSection(
+    page,
+    T.workSection,
+    T.workSection[0],
+  );
+
+  scope = await workFormScope(page);
+  if (scope) return scope;
 
   const addButton = page.locator('#section-add-record-workexperience').first();
   if (await visible(addButton)) {
     await addButton.click();
-    await page.waitForTimeout(500);
-    return;
+    await page.waitForTimeout(180);
+    return await workFormScope(page);
   }
 
-  await pressEnter(
-    `Open "${T.workSection[0]}" and choose Add for: ${job.title} - ${job.company}.`,
-  );
+  if (section) {
+    const sectionAddButton = section.getByRole('button', {
+      name: /Add new|Add work experience|Aggiungi/i,
+    }).first();
+
+    if (await visible(sectionAddButton)) {
+      await sectionAddButton.click();
+      await page.waitForTimeout(180);
+      return await workFormScope(page);
+    }
+  }
+
+  console.log(`  ! Work experience form could not be opened for: ${job.title} - ${job.company}`);
+  return null;
 }
 
 async function workFormScope(page) {
@@ -861,10 +971,11 @@ async function workFormScope(page) {
   ];
 
   const employer = await fieldByLabel(page, employerLabels, { textEntryOnly: true });
-  if (!employer) return await currentScope(page);
+  if (!employer) return null;
 
   const form = employer.locator('xpath=ancestor::form[1]');
   if (await visible(form)) return form;
+
   return await currentScope(page);
 }
 
@@ -872,8 +983,12 @@ async function fillWork(page) {
   console.log(`\n[2/6] Work experience (${data.work.length} entries)`);
   for (const [index, job] of data.work.entries()) {
     console.log(`  ${index + 1}. ${job.title} - ${job.company}`);
-    await openWorkForm(page, job);
-    const scope = await workFormScope(page);
+    const scope = await openWorkForm(page, job);
+    if (!scope) {
+      console.log(`  ! Skipping work entry because its form was not opened: ${job.title}`);
+      continue;
+    }
+
     console.log('     - Job title');
     await fillAny(
       scope,
@@ -968,8 +1083,8 @@ async function existingRecordEditButton(page, recordText, sectionNames) {
   return null;
 }
 
-async function waitForEducationForm(page, item) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+async function waitForEducationForm(page) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     const qualification = await fieldByLabel(
       page,
       ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
@@ -982,10 +1097,7 @@ async function waitForEducationForm(page, item) {
     );
 
     if (qualification && organisation) return await currentScope(page);
-
-    await pressEnter(
-      `Open the Education and training form for: ${item.qualification}. Do not just expand the section; open the actual Add/Edit form.`,
-    );
+    await page.waitForTimeout(100);
   }
 
   return null;
@@ -1000,32 +1112,48 @@ async function openEducationForm(page, item) {
 
   if (editButton) {
     await editButton.click();
-    await page.waitForTimeout(500);
-    return await waitForEducationForm(page, item);
+    await page.waitForTimeout(180);
+    return await waitForEducationForm(page);
   }
 
-  const section = await sectionCard(page, T.educationSection);
+  let scope = await waitForEducationForm(page);
+  if (scope) return scope;
+
+  const section = await ensureSection(
+    page,
+    T.educationSection,
+    T.educationSection[0],
+  );
+
+  scope = await waitForEducationForm(page);
+  if (scope) return scope;
+
   if (section) {
-    const addButton = section.getByRole('button', { name: /^Add new$|^Aggiungi$/i }).first();
+    const addButton = section.getByRole('button', {
+      name: /Add new|Add education|Aggiungi/i,
+    }).first();
+
     if (await visible(addButton)) {
       await addButton.click();
-      await page.waitForTimeout(500);
-      const scope = await waitForEducationForm(page, item);
+      await page.waitForTimeout(180);
+      scope = await waitForEducationForm(page);
       if (scope) return scope;
     }
 
     const ariaAddButton = section.locator(
       'button[aria-label*="Add new" i], button[aria-label*="Aggiungi" i]',
     ).first();
+
     if (await visible(ariaAddButton)) {
       await ariaAddButton.click();
-      await page.waitForTimeout(500);
-      const scope = await waitForEducationForm(page, item);
+      await page.waitForTimeout(180);
+      scope = await waitForEducationForm(page);
       if (scope) return scope;
     }
   }
 
-  return await waitForEducationForm(page, item);
+  console.log(`  ! Education form could not be opened for: ${item.qualification}`);
+  return null;
 }
 
 async function fillEducation(page) {
@@ -1406,25 +1534,37 @@ async function openLanguageSkillsForm(page) {
   let scope = await languageSectionScope(page);
   if (scope) return scope;
 
-  const section = await sectionCard(page, T.languageSection);
+  let section = await sectionCard(page, T.languageSection);
+
+  if (!section) {
+    section = await ensureSection(
+      page,
+      T.languageSection,
+      T.languageSection[0],
+    );
+
+    scope = await languageSectionScope(page);
+    if (scope) return scope;
+  }
+
+  section = await sectionCard(page, T.languageSection) ?? section;
+
   if (section) {
     const editButton = section.locator(
-      'button[aria-label*="Edit the content of the section Language skills" i], button[aria-label*="Edit the content of the section Competenze linguistiche" i]',
+      'button[aria-label*="Edit the content of the section Language skills" i], ' +
+      'button[aria-label*="Edit the content of the section Competenze linguistiche" i]',
     ).first();
 
     if (await visible(editButton)) {
       await editButton.click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(180);
       scope = await languageSectionScope(page);
       if (scope) return scope;
     }
   }
 
-  await pressEnter(
-    `Open "${T.languageSection[0]}" so that the Mother tongue and Other language fields are visible.`,
-  );
-
-  return await languageSectionScope(page);
+  console.log('  ! Language skills form could not be opened automatically.');
+  return null;
 }
 
 async function selectEuropassLanguage(page, inputSelector, value) {
@@ -1581,82 +1721,12 @@ async function currentProjectForm(page) {
 }
 
 async function ensureProjectsSection(page) {
-  let section = await sectionCard(page, T.projectSection);
-  if (section) return section;
-
-  const addSection = page.locator('#profile-add-section').first();
-  if (!(await visible(addSection))) {
-    console.log('  ! Add new section button was not found.');
-    return null;
-  }
-
-  console.log('  - Creating Projects section');
-  await addSection.click();
-  await page.waitForTimeout(300);
-
-  const dialog = page.getByRole('dialog').filter({
-    hasText: /Create a new section|Crea una nuova sezione/i,
-  }).last();
-
-  if (!(await visible(dialog))) {
-    console.log('  ! Create a new section dialog did not open.');
-    return null;
-  }
-
-  // This dialog uses a native <select> with stable IDs.
-  // Prefer those IDs over accessible-label lookup because the Europass
-  // overlay currently does not expose the label relationship reliably.
-  const sectionType = page.locator('#new-section-banner-select').last();
-
-  try {
-    await sectionType.waitFor({ state: 'visible', timeout: 5000 });
-  } catch {
-    console.log('  ! Section type selector was not found.');
-    return null;
-  }
-
-  try {
-    await sectionType.selectOption({ value: '9: projects' });
-  } catch {
-    try {
-      await sectionType.selectOption({ label: 'Projects' });
-    } catch {
-      console.log('  ! Projects option was not found in the section type selector.');
-      return null;
-    }
-  }
-
-  const addSectionButton = page.locator('#add-section').last();
-
-  try {
-    await addSectionButton.waitFor({ state: 'visible', timeout: 5000 });
-
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      if (!(await addSectionButton.isDisabled().catch(() => true))) break;
-      await page.waitForTimeout(100);
-    }
-
-    if (await addSectionButton.isDisabled().catch(() => true)) {
-      console.log('  ! Add section button did not become enabled.');
-      return null;
-    }
-
-    console.log('  - Adding Projects section');
-    await addSectionButton.click();
-    await page.waitForTimeout(600);
-  } catch {
-    console.log('  ! Add section button was not found.');
-    return null;
-  }
-
-  section = await sectionCard(page, T.projectSection);
-  if (section) return section;
-
-  await pressEnter(
-    'Projects is selected in the "Create a new section" dialog. Finish creating the section in Europass, then return here.',
+  return await ensureSection(
+    page,
+    T.projectSection,
+    T.projectSection[0],
+    '9: projects',
   );
-
-  return await sectionCard(page, T.projectSection);
 }
 
 async function openProjectForm(page, project) {
