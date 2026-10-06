@@ -767,11 +767,11 @@ async function fillWork(page) {
       { page },
     );
 
-    console.log('     - Location');
+    console.log('     - City');
     await fillAny(
       scope,
       ['City', 'Town', 'Città', 'Comune'],
-      job.location.display || job.location.city,
+      job.location.city,
       { optional: true, page },
     );
 
