@@ -88,23 +88,88 @@ async function currentScope(page) {
   return page;
 }
 
-async function fieldByLabel(scope, labels) {
-  for (const label of labels) {
-    const locator = scope.getByLabel(label, { exact: false });
-    if (await visible(locator)) return locator.first();
+async function isTextEntry(locator) {
+  try {
+    const tag = await locator.evaluate((el) => el.tagName.toLowerCase());
+    const type = ((await locator.getAttribute('type')) || '').toLowerCase();
+    const contentEditable = await locator.getAttribute('contenteditable');
+
+    if (tag === 'textarea' || contentEditable === 'true') return true;
+    if (tag !== 'input') return false;
+
+    return !['checkbox', 'radio', 'file', 'button', 'submit', 'reset', 'hidden'].includes(type);
+  } catch {
+    return false;
+  }
+}
+
+async function firstVisibleCandidate(locator, predicate = null) {
+  const count = Math.min(await locator.count(), 20);
+  for (let i = 0; i < count; i += 1) {
+    const candidate = locator.nth(i);
+    if (!(await visible(candidate))) continue;
+    if (!predicate || await predicate(candidate)) return candidate;
+  }
+  return null;
+}
+
+async function fieldByLabel(scope, labels, { textEntryOnly = false } = {}) {
+  const predicate = textEntryOnly ? isTextEntry : null;
+
+  // Prefer exact accessible labels. Partial matching can accidentally resolve
+  // "Phone" to the phone-prefix combobox instead of the actual number input.
+  for (const exact of [true, false]) {
+    for (const label of labels) {
+      const candidate = await firstVisibleCandidate(
+        scope.getByLabel(label, { exact }),
+        predicate,
+      );
+      if (candidate) return candidate;
+    }
   }
 
   for (const label of labels) {
-    const labelNode = scope.locator('label').filter({ hasText: label }).first();
-    if (!(await visible(labelNode))) continue;
-    const forId = await labelNode.getAttribute('for');
-    if (forId) {
-      const escapedId = forId.replaceAll('"', '\\"');
-      const byId = scope.locator(`[id="${escapedId}"]`);
-      if (await visible(byId)) return byId.first();
+    const labelNodes = scope.locator('label').filter({ hasText: label });
+    const labelCount = Math.min(await labelNodes.count(), 20);
+    for (let i = 0; i < labelCount; i += 1) {
+      const labelNode = labelNodes.nth(i);
+      if (!(await visible(labelNode))) continue;
+
+      const forId = await labelNode.getAttribute('for');
+      if (forId) {
+        const escapedId = forId.replaceAll('"', '\\"');
+        const candidate = await firstVisibleCandidate(
+          scope.locator(`[id="${escapedId}"]`),
+          predicate,
+        );
+        if (candidate) return candidate;
+      }
+
+      const nearby = labelNode.locator(
+        'xpath=following::*[self::input or self::textarea or @contenteditable="true"][1]',
+      );
+      const candidate = await firstVisibleCandidate(nearby, predicate);
+      if (candidate) return candidate;
     }
-    const nearby = labelNode.locator('xpath=following::*[self::input or self::textarea or @contenteditable="true"][1]');
-    if (await visible(nearby)) return nearby.first();
+  }
+
+  // Europass sometimes renders a group heading as plain text rather than a
+  // <label>. In that case the first text-entry control after the heading is
+  // still a much safer fallback than a partially matching combobox.
+  if (textEntryOnly) {
+    for (const label of labels) {
+      const textNodes = scope.getByText(label, { exact: true });
+      const count = Math.min(await textNodes.count(), 20);
+      for (let i = 0; i < count; i += 1) {
+        const textNode = textNodes.nth(i);
+        if (!(await visible(textNode))) continue;
+        const nearby = textNode.locator(
+          'xpath=following::*[self::input or self::textarea or @contenteditable="true"][1]',
+        );
+        const candidate = await firstVisibleCandidate(nearby, isTextEntry);
+        if (candidate) return candidate;
+      }
+    }
   }
 
   return null;
@@ -112,7 +177,7 @@ async function fieldByLabel(scope, labels) {
 
 async function fillAny(scope, labels, value, { optional = false } = {}) {
   if (value === undefined || value === null || normalize(value) === '') return false;
-  const field = await fieldByLabel(scope, labels);
+  const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
   if (!field) {
     if (!optional) console.log(`  ! Field not found: ${labels[0]}`);
     return false;
@@ -133,6 +198,46 @@ async function fillAny(scope, labels, value, { optional = false } = {}) {
     await field.fill(String(value));
   }
   return true;
+}
+
+async function fillPhoneNumber(page, scope, value) {
+  if (!value) return false;
+
+  const match = String(value).trim().match(/^(\+\d{1,3})\s*(.*)$/);
+  const prefix = match?.[1] || '';
+  const localNumber = (match?.[2] || String(value)).trim();
+
+  let prefixSelected = false;
+  if (prefix) {
+    const prefixControl = scope.locator(
+      '[role="combobox"][aria-label*="phone prefix" i]',
+    ).first();
+
+    if (await visible(prefixControl)) {
+      try {
+        await prefixControl.click();
+        const option = page.getByRole('option').filter({ hasText: prefix }).first();
+        if (await visible(option)) {
+          await option.click();
+          prefixSelected = true;
+        } else {
+          await page.keyboard.type(prefix.replace('+', ''));
+          await page.keyboard.press('Enter');
+          prefixSelected = true;
+        }
+      } catch {
+        console.log(`  ! Could not select phone prefix ${prefix}; keeping it in the phone-number field.`);
+      }
+    }
+  }
+
+  const valueForInput = prefixSelected ? localNumber : String(value).trim();
+  return fillAny(
+    scope,
+    ['Phone number', 'Telefono'],
+    valueForInput,
+    { optional: true },
+  );
 }
 
 async function selectOrFill(scope, labels, value, { optional = false } = {}) {
@@ -231,7 +336,7 @@ async function fillPersonal(page) {
   }
 
   await fillAny(scope, ['Email', 'Email address', 'Indirizzo e-mail'], data.contact.email, { optional: true });
-  await fillAny(scope, ['Phone', 'Phone number', 'Telefono'], data.contact.phone, { optional: true });
+  await fillPhoneNumber(page, scope, data.contact.phone);
   await fillAny(scope, ['City', 'Town', 'Città', 'Comune'], data.contact.location.city, { optional: true });
   await fillAny(scope, ['Region', 'Province', 'Regione', 'Provincia'], data.contact.location.region, { optional: true });
   await selectOrFill(scope, ['Country', 'Paese'], data.contact.location.country, { optional: true });
@@ -246,7 +351,7 @@ async function fillPersonal(page) {
 
   await clickSave(page);
 
-  const aboutField = await fieldByLabel(page, T.about);
+  const aboutField = await fieldByLabel(page, T.about, { textEntryOnly: true });
   if (aboutField) {
     await aboutField.fill(data.summary).catch(async () => {
       await aboutField.click();
@@ -404,6 +509,7 @@ try {
     channel: 'msedge',
     headless: false,
     viewport: null,
+    chromiumSandbox: true,
     args: ['--start-maximized'],
   });
 
