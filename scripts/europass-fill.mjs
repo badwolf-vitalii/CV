@@ -1984,7 +1984,9 @@ try {
   // Do not use Enter as a "finish" signal here. It is too easy to press Enter
   // after the download has started but before Playwright has finished saveAs(),
   // which closes the browser context underneath the download.
-  await context.waitForEvent('close');
+  // BrowserContext.waitForEvent() has a 30-second default timeout.
+  // Waiting for the user to finish reviewing the CV must be unlimited.
+  await context.waitForEvent('close', { timeout: 0 });
   await waitForPendingDownloads(0);
 } catch (error) {
   const page = context?.pages()?.[0];
