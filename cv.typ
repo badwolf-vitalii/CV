@@ -107,7 +107,7 @@
     "Senior Software Developer",
     "Jan 2021 - Present",
     "A.E.P. Ticketing Solutions S.R.L.",
-    "Italy",
+    "Signa (FI), Italy",
     [
       - Develop and maintain C\#/.NET software for public-transport ticketing and fare-collection systems across desktop and backend components.
       - Contributed to ticketing projects for ATM and TN across the Lombardy region.
