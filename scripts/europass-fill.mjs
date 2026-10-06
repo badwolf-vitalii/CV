@@ -390,8 +390,14 @@ async function selectPrimeNgText(page, control, values) {
       await page.waitForTimeout(200);
     }
 
-    const selectedText = normalize(await control.textContent()).toLowerCase();
-    if (selectedText.includes(String(value).toLowerCase())) return true;
+    const selectedState = [
+      normalize(await control.textContent().catch(() => '')),
+      normalize(await control.inputValue().catch(() => '')),
+      normalize(await control.getAttribute('value').catch(() => '')),
+      normalize(await control.getAttribute('aria-label').catch(() => '')),
+    ].join(' ').toLowerCase();
+
+    if (selectedState.includes(String(value).toLowerCase())) return true;
 
     await closeOpenOverlays(page);
   }
@@ -1297,44 +1303,50 @@ async function ensureProjectsSection(page) {
     return null;
   }
 
-  const sectionType = dialog.getByLabel(
-    /Select the section type|Seleziona il tipo di sezione/i,
-    { exact: false },
-  ).first();
+  // This dialog uses a native <select> with stable IDs.
+  // Prefer those IDs over accessible-label lookup because the Europass
+  // overlay currently does not expose the label relationship reliably.
+  const sectionType = page.locator('#new-section-banner-select').last();
 
-  if (!(await visible(sectionType))) {
+  try {
+    await sectionType.waitFor({ state: 'visible', timeout: 5000 });
+  } catch {
     console.log('  ! Section type selector was not found.');
     return null;
   }
 
   try {
-    await sectionType.selectOption({ label: lang === 'it' ? 'Progetti' : 'Projects' });
+    await sectionType.selectOption({ value: '9: projects' });
   } catch {
-    console.log('  ! Projects option was not found in the section type selector.');
-    return null;
+    try {
+      await sectionType.selectOption({ label: 'Projects' });
+    } catch {
+      console.log('  ! Projects option was not found in the section type selector.');
+      return null;
+    }
   }
 
-  await page.waitForTimeout(400);
+  const addSectionButton = page.locator('#add-section').last();
 
-  section = await sectionCard(page, T.projectSection);
-  if (section) return section;
+  try {
+    await addSectionButton.waitFor({ state: 'visible', timeout: 5000 });
 
-  for (const label of [
-    /^Add$/i,
-    /^Create$/i,
-    /^Save$/i,
-    /^Continue$/i,
-    /^Aggiungi$/i,
-    /^Crea$/i,
-    /^Salva$/i,
-    /^Continua$/i,
-  ]) {
-    const button = dialog.getByRole('button', { name: label }).first();
-    if (await visible(button)) {
-      await button.click();
-      await page.waitForTimeout(500);
-      break;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (!(await addSectionButton.isDisabled().catch(() => true))) break;
+      await page.waitForTimeout(100);
     }
+
+    if (await addSectionButton.isDisabled().catch(() => true)) {
+      console.log('  ! Add section button did not become enabled.');
+      return null;
+    }
+
+    console.log('  - Adding Projects section');
+    await addSectionButton.click();
+    await page.waitForTimeout(600);
+  } catch {
+    console.log('  ! Add section button was not found.');
+    return null;
   }
 
   section = await sectionCard(page, T.projectSection);
