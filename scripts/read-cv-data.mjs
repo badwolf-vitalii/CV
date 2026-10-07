@@ -53,7 +53,6 @@ const EUROPASS_WORK_DETAILS = {
 const EUROPASS_EDUCATION_DETAILS = {
   'Lviv Polytechnic National University': {
     fieldOfStudy: 'Information and Communication Technologies',
-    fieldOfStudyDetail: 'Software and applications development and analysis',
     website: 'https://lpnu.ua/',
     eqfLevel: 'EQF level 6',
     city: 'Lviv',
@@ -63,7 +62,6 @@ const EUROPASS_EDUCATION_DETAILS = {
   },
   'Chervonograd State College': {
     fieldOfStudy: 'Information and Communication Technologies',
-    fieldOfStudyDetail: 'Software and applications development and analysis',
     website: 'https://gefk.in.ua/',
     eqfLevel: 'EQF level 3',
     city: 'Chervonograd',
