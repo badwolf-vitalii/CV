@@ -10,7 +10,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = path.join(root, '.europass-browser-profile');
 const debugDir = path.join(root, '.europass-debug');
 const outputDir = path.join(root, 'output');
-const downloadTempDir = path.join(root, '.europass-downloads');
 const lang = (process.env.EUROPASS_LANG || 'en').toLowerCase() === 'it' ? 'it' : 'en';
 const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=${lang}`;
 const data = loadCvData(root);
@@ -2268,22 +2267,123 @@ async function fillProjects(page) {
   }
 }
 
+function outputFilesSnapshot() {
+  fs.mkdirSync(outputDir, { recursive: true });
+  return new Set(fs.readdirSync(outputDir));
+}
+
+function isCompletePdf(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size < 8) return false;
+
+    const fd = fs.openSync(filePath, 'r');
+    try {
+      const head = Buffer.alloc(Math.min(8, stat.size));
+      fs.readSync(fd, head, 0, head.length, 0);
+      if (!head.toString('latin1').startsWith('%PDF-')) return false;
+
+      const tailLength = Math.min(2048, stat.size);
+      const tail = Buffer.alloc(tailLength);
+      fs.readSync(fd, tail, 0, tailLength, stat.size - tailLength);
+      return tail.toString('latin1').includes('%%EOF');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+async function recoverBrowserManagedDownload(beforeFiles, targetPath, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  let candidate = null;
+  let previousSize = -1;
+  let stableCount = 0;
+
+  while (Date.now() < deadline) {
+    if (fs.existsSync(targetPath) && isCompletePdf(targetPath)) {
+      return targetPath;
+    }
+
+    const entries = fs.readdirSync(outputDir)
+      .filter((name) => !beforeFiles.has(name))
+      .map((name) => path.join(outputDir, name))
+      .filter((filePath) => filePath !== targetPath && fs.existsSync(filePath))
+      .filter((filePath) => fs.statSync(filePath).isFile())
+      .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+
+    if (entries.length > 0) {
+      const newest = entries[0];
+      const size = fs.statSync(newest).size;
+
+      if (candidate === newest && size === previousSize) {
+        stableCount += 1;
+      } else {
+        candidate = newest;
+        previousSize = size;
+        stableCount = 0;
+      }
+
+      if (stableCount >= 2 && isCompletePdf(newest)) {
+        fs.rmSync(targetPath, { force: true });
+        fs.renameSync(newest, targetPath);
+        return targetPath;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return null;
+}
+
 function attachDownloadHandler(page) {
   page.on('download', (download) => {
+    const beforeFiles = outputFilesSnapshot();
+    const suggestedName = download.suggestedFilename() || 'Europass-CV.pdf';
+    const targetPath = path.join(outputDir, suggestedName);
+
     const saveTask = (async () => {
+      console.log(`\nDownload started: ${suggestedName}`);
+
       try {
-        fs.mkdirSync(outputDir, { recursive: true });
+        // With downloadsPath=outputDir Chromium first writes a browser-managed
+        // file (normally a UUID). Once the download is complete, move that
+        // exact file to the suggested filename instead of saveAs(), avoiding
+        // the duplicate UUID file we had before.
+        const browserPath = await download.path();
 
-        const suggestedName = download.suggestedFilename() || 'Europass-CV.pdf';
-        const targetPath = path.join(outputDir, suggestedName);
+        if (browserPath && fs.existsSync(browserPath)) {
+          if (path.resolve(browserPath) !== path.resolve(targetPath)) {
+            fs.rmSync(targetPath, { force: true });
+            fs.renameSync(browserPath, targetPath);
+          }
 
-        console.log(`\nDownload started: ${suggestedName}`);
-        await download.saveAs(targetPath);
-        successfulDownloadCount += 1;
-        console.log(`Downloaded file saved to: ${targetPath}`);
+          successfulDownloadCount += 1;
+          console.log(`Downloaded file saved to: ${targetPath}`);
+          return;
+        }
       } catch (error) {
-        console.error(`\nCould not save downloaded file: ${error?.message || error}`);
+        console.log(
+          `Download object was interrupted; trying to recover the browser-managed file: ${error?.message || error}`,
+        );
       }
+
+      // Europass has occasionally closed the CV page/browser while the PDF is
+      // being downloaded. Because Chromium now writes directly into output,
+      // recover the completed UUID file even after the Playwright Download
+      // object has become invalid.
+      const recovered = await recoverBrowserManagedDownload(beforeFiles, targetPath);
+      if (recovered) {
+        successfulDownloadCount += 1;
+        console.log(`Downloaded file recovered and saved to: ${recovered}`);
+        return;
+      }
+
+      console.error(
+        `\nCould not save downloaded file. Check ${outputDir} for a partial browser download.`,
+      );
     })();
 
     pendingDownloadSaves.add(saveTask);
@@ -2321,8 +2421,7 @@ async function saveDebug(page, reason) {
 let context;
 try {
   fs.mkdirSync(profileDir, { recursive: true });
-  fs.rmSync(downloadTempDir, { recursive: true, force: true });
-  fs.mkdirSync(downloadTempDir, { recursive: true });
+  fs.mkdirSync(outputDir, { recursive: true });
 
   context = await chromium.launchPersistentContext(profileDir, {
     channel: 'msedge',
@@ -2330,7 +2429,7 @@ try {
     viewport: null,
     chromiumSandbox: true,
     acceptDownloads: true,
-    downloadsPath: downloadTempDir,
+    downloadsPath: outputDir,
     args: ['--start-maximized'],
   });
 
@@ -2362,7 +2461,6 @@ try {
   console.log('No password or EU Login credential is read by the script.');
   console.log(`CV data loaded from cv.typ and personal.yaml for ${data.name}.`);
   console.log(`Browser downloads will be saved to: ${outputDir}`);
-  console.log(`Temporary browser download files are stored in: ${downloadTempDir}`);
   console.log('A blank keeper tab is left open intentionally so Europass cannot kill an in-progress download by closing the CV tab.');
 
   await pressEnter(
@@ -2411,6 +2509,5 @@ try {
     }
   }
 
-  fs.rmSync(downloadTempDir, { recursive: true, force: true });
   rl.close();
 }
