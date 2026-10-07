@@ -31,6 +31,48 @@ const EUROPASS_LANGUAGE_SKILLS = {
   },
 };
 
+const EUROPASS_WORK_DETAILS = {
+  'A.E.P. Ticketing Solutions S.R.L.': {
+    start: '2021-01-01',
+    end: null,
+  },
+  'Conduent Business Solutions Italia S.P.A.': {
+    start: '2018-01-22',
+    end: '2020-12-31',
+  },
+  'Ulisse s.r.l.': {
+    start: '2017-07-03',
+    end: '2019-06-28',
+  },
+  'ADVA SOFT': {
+    start: '2011-03-01',
+    end: '2014-08-29',
+  },
+};
+
+const EUROPASS_EDUCATION_DETAILS = {
+  'Lviv Polytechnic National University': {
+    fieldOfStudy: 'Information and Communication Technologies',
+    fieldOfStudyDetail: 'Software and applications development and analysis',
+    website: 'https://lpnu.ua/',
+    eqfLevel: 'EQF level 6',
+    city: 'Lviv',
+    country: 'Ukraine',
+    start: '2008-09-01',
+    end: '2013-01-31',
+  },
+  'Chervonograd State College': {
+    fieldOfStudy: 'Information and Communication Technologies',
+    fieldOfStudyDetail: 'Software and applications development and analysis',
+    website: 'https://gefk.in.ua/',
+    eqfLevel: 'EQF level 3',
+    city: 'Chervonograd',
+    country: 'Ukraine',
+    start: '2004-09-01',
+    end: '2008-06-01',
+  },
+};
+
 function typstText(value) {
   return String(value ?? '')
     .replace(/\\#/g, '#')
@@ -198,12 +240,16 @@ function parseEducation(source) {
   const re = /^\s*\*([^*]+)\*\s*-\s*(.+?),\s*([^,\n]+)\s*\((\d{4})-(\d{4})\)\s*\\?$/gm;
   let match;
   while ((match = re.exec(body)) !== null) {
+    const institution = typstText(match[2]);
+    const europassDetails = EUROPASS_EDUCATION_DETAILS[institution] ?? {};
+
     entries.push({
       qualification: typstText(match[1]),
-      institution: typstText(match[2]),
+      institution,
       country: typstText(match[3]),
       start: `${match[4]}-01`,
       end: `${match[5]}-12`,
+      ...europassDetails,
     });
   }
   return entries;
@@ -267,11 +313,16 @@ export function loadCvData(root) {
   const work = extractCalls(source, '#role(').map((args) => {
     if (args.length < 5) throw new Error('Unexpected role(...) structure in cv.typ');
     const period = unquote(args[1]);
+    const company = unquote(args[2]);
+    const periodDetails = parsePeriod(period);
+    const europassDetails = EUROPASS_WORK_DETAILS[company] ?? {};
+
     return {
       title: unquote(args[0]),
       period,
-      ...parsePeriod(period),
-      company: unquote(args[2]),
+      ...periodDetails,
+      ...europassDetails,
+      company,
       location: parseLocation(unquote(args[3])),
       bullets: parseBullets(args[4]),
     };

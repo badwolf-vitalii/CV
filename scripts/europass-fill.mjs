@@ -618,24 +618,98 @@ async function selectOrFill(scope, labels, value, { optional = false } = {}) {
   return false;
 }
 
-function dateValueForType(isoMonth, type) {
-  if (!isoMonth) return '';
-  if (type === 'date') return `${isoMonth}-01`;
-  if (type === 'month') return isoMonth;
-  const [year, month] = isoMonth.split('-');
-  return `${month}/${year}`;
+function parseIsoDate(value) {
+  const match = String(value ?? '').match(/^(\d{4})-(\d{2})(?:-(\d{2}))?$/);
+  if (!match) return null;
+
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3] ?? '01',
+  };
 }
 
-async function fillDate(scope, labels, isoMonth, { optional = false } = {}) {
-  if (!isoMonth) return false;
-  const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
-  if (!field) {
-    if (!optional) console.log(`  ! Date field not found: ${labels[0]}`);
+function dateValueForType(isoDate, type) {
+  const parts = parseIsoDate(isoDate);
+  if (!parts) return '';
+
+  if (type === 'date') {
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+
+  if (type === 'month') {
+    return `${parts.year}-${parts.month}`;
+  }
+
+  return `${parts.day}/${parts.month}/${parts.year}`;
+}
+
+async function selectNumericOption(control, value) {
+  const target = Number(value);
+  const options = control.locator('option');
+  const count = await options.count();
+
+  for (let i = 0; i < count; i += 1) {
+    const option = options.nth(i);
+    const label = normalize(await option.textContent());
+    if (Number(label) !== target) continue;
+
+    const optionValue = await option.getAttribute('value');
+    if (optionValue !== null) {
+      await control.selectOption(optionValue);
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function fillDate(scope, labels, isoDate, { optional = false } = {}) {
+  if (!isoDate) return false;
+
+  const parts = parseIsoDate(isoDate);
+  if (!parts) {
+    if (!optional) console.log(`  ! Unsupported date value: ${isoDate}`);
     return false;
   }
-  const type = (await field.getAttribute('type')) || '';
-  await field.fill(dateValueForType(isoMonth, type));
-  return true;
+
+  const field = await fieldByLabel(scope, labels, { textEntryOnly: true });
+  if (field) {
+    const type = (await field.getAttribute('type')) || '';
+    await field.fill(dateValueForType(isoDate, type));
+    await field.press('Tab').catch(() => {});
+    return true;
+  }
+
+  // The newer Europass education form renders From/To as three native
+  // selectors (day, month, year) rather than one date input.
+  for (const label of labels) {
+    const labelNodes = scope.getByText(label, { exact: true });
+    const count = await labelNodes.count();
+
+    for (let i = 0; i < count; i += 1) {
+      const labelNode = labelNodes.nth(i);
+      if (!(await visible(labelNode))) continue;
+
+      const container = labelNode.locator(
+        'xpath=ancestor::*[count(.//select) >= 3][1]',
+      );
+
+      if (!(await visible(container))) continue;
+
+      const selects = container.locator('select:visible');
+      if (await selects.count() < 3) continue;
+
+      const dayOk = await selectNumericOption(selects.nth(0), parts.day);
+      const monthOk = await selectNumericOption(selects.nth(1), parts.month);
+      const yearOk = await selectNumericOption(selects.nth(2), parts.year);
+
+      if (dayOk && monthOk && yearOk) return true;
+    }
+  }
+
+  if (!optional) console.log(`  ! Date field not found: ${labels[0]}`);
+  return false;
 }
 
 async function checkAny(scope, labels, { optional = true } = {}) {
@@ -1036,10 +1110,13 @@ async function fillWork(page) {
     );
 
     await dismissAutocomplete(page);
+    console.log(`     - From: ${job.start}`);
     await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], job.start, { optional: true });
     if (job.end) {
+      console.log(`     - To: ${job.end}`);
       await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], job.end, { optional: true });
     } else {
+      console.log('     - Ongoing');
       await checkAny(scope, ['I currently work here', 'Current', 'Ongoing', 'Attualmente lavoro qui', 'In corso'], { optional: true });
     }
     await fillAny(
@@ -1179,30 +1256,150 @@ async function openEducationForm(page, item) {
   return null;
 }
 
+async function selectEducationChoice(page, scope, labels, value, { optional = false } = {}) {
+  if (!value) return false;
+
+  let control = await exactLabeledControl(scope, labels);
+  if (!control) control = await fieldByLabel(scope, labels);
+
+  if (!control) {
+    if (!optional) console.log(`  ! Field not found: ${labels[0]}`);
+    return false;
+  }
+
+  const tag = await control.evaluate((el) => el.tagName.toLowerCase());
+
+  if (tag === 'select') {
+    try {
+      await control.selectOption({ label: String(value) });
+      return true;
+    } catch {
+      // Fall through to the custom dropdown helper.
+    }
+  }
+
+  return await selectPrimeNgText(page, control, value);
+}
+
 async function fillEducation(page) {
   console.log(`\n[3/6] Education (${data.education.length} entries)`);
+
   for (const [index, item] of data.education.entries()) {
     console.log(`  ${index + 1}. ${item.qualification}`);
-    const scope = await openEducationForm(page, item);
+
+    let scope = await openEducationForm(page, item);
     if (!scope) {
       console.log(`  ! Education form was not detected for: ${item.qualification}. Skipping this entry.`);
       continue;
     }
+
     await fillAny(
       scope,
-      ['Qualification', 'Title of qualification awarded', 'Degree', 'Qualifica', 'Titolo della qualifica rilasciata'],
+      [
+        'Title of qualification/credential awarded',
+        'Qualification',
+        'Title of qualification awarded',
+        'Degree',
+        'Qualifica',
+        'Titolo della qualifica rilasciata',
+      ],
       item.qualification,
       { page },
     );
+
     await fillAny(
       scope,
-      ['Organisation', 'Institution', 'Education provider', 'Organizzazione', 'Istituto', 'Ente di istruzione'],
+      [
+        'Organisation providing education and training',
+        'Organisation',
+        'Institution',
+        'Education provider',
+        'Organizzazione',
+        'Istituto',
+        'Ente di istruzione',
+      ],
       item.institution,
       { page },
     );
-    // Country intentionally omitted: Europass uses the same fragile custom dropdown here.
-    await fillDate(scope, ['Start date', 'From', 'Data di inizio', 'Da'], item.start, { optional: true });
-    await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], item.end, { optional: true });
+
+    if (item.fieldOfStudy) {
+      console.log(`     - Field of study: ${item.fieldOfStudy}`);
+      await selectEducationChoice(
+        page,
+        scope,
+        ['Field of study', 'Campo di studio'],
+        item.fieldOfStudy,
+        { optional: true },
+      );
+      scope = await currentScope(page);
+    }
+
+    if (item.fieldOfStudyDetail) {
+      console.log(`     - Specify further: ${item.fieldOfStudyDetail}`);
+      await selectEducationChoice(
+        page,
+        scope,
+        ['Specify further', 'Specifica ulteriormente'],
+        item.fieldOfStudyDetail,
+        { optional: true },
+      );
+      scope = await currentScope(page);
+    }
+
+    await fillAny(
+      scope,
+      ['Website', 'Sito web'],
+      item.website,
+      { optional: true, page },
+    );
+
+    if (item.eqfLevel) {
+      console.log(`     - EQF: ${item.eqfLevel}`);
+      await selectEducationChoice(
+        page,
+        scope,
+        ['Level in EQF', 'EQF level', 'Livello EQF'],
+        item.eqfLevel,
+        { optional: true },
+      );
+      scope = await currentScope(page);
+    }
+
+    await fillAny(
+      scope,
+      ['City', 'Town', 'Città', 'Comune'],
+      item.city,
+      { optional: true, page },
+    );
+
+    if (item.country) {
+      console.log(`     - Country: ${item.country}`);
+      await selectEducationChoice(
+        page,
+        scope,
+        ['Country', 'Paese'],
+        item.country,
+        { optional: true },
+      );
+      scope = await currentScope(page);
+    }
+
+    console.log(`     - From: ${item.start}`);
+    await fillDate(
+      scope,
+      ['Start date', 'From', 'Data di inizio', 'Da'],
+      item.start,
+      { optional: true },
+    );
+
+    console.log(`     - To: ${item.end}`);
+    await fillDate(
+      scope,
+      ['End date', 'To', 'Data di fine', 'A'],
+      item.end,
+      { optional: true },
+    );
+
     if (!(await clickSave(page))) {
       await pressEnter('Save this education entry in Europass, then return here.');
     }

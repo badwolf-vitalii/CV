@@ -176,7 +176,7 @@
 
 #block(breakable: false)[
   #section("EDUCATION & LANGUAGES")
-  *Bachelor's Degree in Software Engineering* - Lviv Polytechnic National University, Ukraine (2008-2012) \
+  *Bachelor's Degree in Software Engineering* - Lviv Polytechnic National University, Ukraine (2008-2013) \
   *NVQ Level 3, Programming for Computers and Automated Systems* - Chervonograd State College, Ukraine (2004-2008)
 
   #v(3pt)
