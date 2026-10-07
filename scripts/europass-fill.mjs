@@ -701,9 +701,12 @@ async function fillDate(scope, labels, isoDate, { optional = false } = {}) {
       const selects = container.locator('select:visible');
       if (await selects.count() < 3) continue;
 
-      const dayOk = await selectNumericOption(selects.nth(0), parts.day);
-      const monthOk = await selectNumericOption(selects.nth(1), parts.month);
+      // Europass rebuilds the valid day options when month/year changes.
+      // Select year and month first, then day last; otherwise a previously
+      // selected day is reset back to the DD placeholder.
       const yearOk = await selectNumericOption(selects.nth(2), parts.year);
+      const monthOk = await selectNumericOption(selects.nth(1), parts.month);
+      const dayOk = await selectNumericOption(selects.nth(0), parts.day);
 
       if (dayOk && monthOk && yearOk) return true;
     }
