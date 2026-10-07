@@ -647,31 +647,64 @@ function dateValueForType(isoDate, type) {
 
 async function selectNumericOption(control, value, { waitForOptions = false } = {}) {
   const target = Number(value);
-  const attempts = waitForOptions ? 12 : 1;
+  const attempts = waitForOptions ? 20 : 1;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const options = control.locator('option');
     const count = await options.count();
 
+    // First try to identify the option by either its visible text or its value.
     for (let i = 0; i < count; i += 1) {
       const option = options.nth(i);
       const label = normalize(await option.textContent());
-      if (Number(label) !== target) continue;
-
       const optionValue = await option.getAttribute('value');
-      if (optionValue !== null) {
-        await control.selectOption(optionValue);
 
-        const selectedText = normalize(
-          await control.locator('option:checked').textContent().catch(() => ''),
-        );
+      if (Number(label) !== target && Number(optionValue) !== target) continue;
 
-        if (Number(selectedText) === target) return true;
+      try {
+        await control.selectOption({ index: i });
+      } catch {
+        if (optionValue !== null) {
+          await control.selectOption(optionValue).catch(() => {});
+        }
+      }
+
+      const selected = await control.evaluate((el) => ({
+        index: el.selectedIndex,
+        text: el.options?.[el.selectedIndex]?.textContent?.trim() ?? '',
+        value: el.value ?? '',
+      })).catch(() => null);
+
+      if (
+        selected &&
+        (Number(selected.text) === target || Number(selected.value) === target)
+      ) {
+        return true;
+      }
+    }
+
+    // Europass' day selector has changed markup more than once. In the current
+    // build the placeholder is option 0 and days 1..31 follow in numeric order.
+    // Selecting by index avoids depending on its internal option values/text.
+    if (target >= 1 && count > target) {
+      try {
+        await control.selectOption({ index: target });
+
+        const selected = await control.evaluate((el) => ({
+          index: el.selectedIndex,
+          text: el.options?.[el.selectedIndex]?.textContent?.trim() ?? '',
+        }));
+
+        if (selected.index === target || Number(selected.text) === target) {
+          return true;
+        }
+      } catch {
+        // Retry below after Europass has rebuilt the options.
       }
     }
 
     if (attempt + 1 < attempts) {
-      await control.page().waitForTimeout(50);
+      await control.page().waitForTimeout(75);
     }
   }
 
@@ -1168,6 +1201,85 @@ async function workFormScope(page) {
   return await currentScope(page);
 }
 
+async function setWorkOngoing(scope) {
+  const labels = ['Ongoing', 'In corso'];
+
+  for (const label of labels) {
+    const texts = scope.getByText(label, { exact: true });
+    const count = await texts.count();
+
+    for (let i = 0; i < count; i += 1) {
+      const textNode = texts.nth(i);
+      if (!(await visible(textNode))) continue;
+
+      // The visual EUI switch wraps a hidden checkbox. Do not require the
+      // checkbox itself to be visible; force-checking the real input updates
+      // Angular state and the visible switch.
+      const container = textNode.locator(
+        'xpath=ancestor::*[.//input[@type="checkbox"] or .//*[@role="switch"]][1]',
+      );
+
+      if (await container.count()) {
+        const checkbox = container.locator('input[type="checkbox"]').first();
+        if (await checkbox.count()) {
+          await checkbox.check({ force: true }).catch(async () => {
+            await checkbox.click({ force: true }).catch(() => {});
+          });
+
+          if (await checkbox.isChecked().catch(() => false)) return true;
+        }
+
+        const switchControl = container.locator('[role="switch"]').first();
+        if (await switchControl.count()) {
+          const before = await switchControl.getAttribute('aria-checked').catch(() => null);
+          if (before !== 'true') {
+            await switchControl.click({ force: true }).catch(() => {});
+          }
+
+          if ((await switchControl.getAttribute('aria-checked').catch(() => null)) === 'true') {
+            return true;
+          }
+        }
+      }
+
+      // Some EUI builds associate the label with the hidden input via "for".
+      const labelNode = textNode.locator('xpath=self::label | ancestor::label[1]').first();
+      if (await labelNode.count()) {
+        const forId = await labelNode.getAttribute('for');
+        if (forId) {
+          const checkbox = scope.locator(`[id="${forId.replaceAll('"', '\\"')}"]`).first();
+          if (await checkbox.count()) {
+            await checkbox.check({ force: true }).catch(async () => {
+              await labelNode.click({ force: true }).catch(() => {});
+            });
+
+            if (await checkbox.isChecked().catch(() => false)) return true;
+          }
+        }
+
+        await labelNode.click({ force: true }).catch(() => {});
+        const nested = labelNode.locator('input[type="checkbox"]').first();
+        if (await nested.count() && await nested.isChecked().catch(() => false)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // Final form-local fallback: Work experience currently contains a single
+  // checkbox, the Ongoing toggle. Prefer the last checkbox in case Europass
+  // adds unrelated hidden controls before it.
+  const checkboxes = scope.locator('input[type="checkbox"]');
+  for (let i = (await checkboxes.count()) - 1; i >= 0; i -= 1) {
+    const checkbox = checkboxes.nth(i);
+    await checkbox.check({ force: true }).catch(() => {});
+
+    if (await checkbox.isChecked().catch(() => false)) return true;
+  }
+
+  return false;
+}
+
 async function fillWork(page) {
   console.log(`\n[2/6] Work experience (${data.work.length} entries)`);
   for (const [index, job] of data.work.entries()) {
@@ -1210,11 +1322,7 @@ async function fillWork(page) {
       await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], job.end, { optional: true });
     } else {
       console.log('     - Ongoing');
-      const ongoingSet = await checkAny(
-        scope,
-        ['I currently work here', 'Current', 'Ongoing', 'Attualmente lavoro qui', 'In corso'],
-        { optional: true },
-      );
+      const ongoingSet = await setWorkOngoing(scope);
       if (!ongoingSet) console.log('  ! Could not enable the Ongoing toggle.');
     }
     await fillAny(
