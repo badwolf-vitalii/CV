@@ -716,14 +716,66 @@ async function fillDate(scope, labels, isoDate, { optional = false } = {}) {
   return false;
 }
 
-async function checkAny(scope, labels, { optional = true } = {}) {
-  const field = await fieldByLabel(scope, labels);
-  if (!field) {
-    if (!optional) console.log(`  ! Checkbox not found: ${labels[0]}`);
-    return false;
+async function ensureToggleChecked(control) {
+  const checked = await control.isChecked().catch(() => null);
+  if (checked === true) return true;
+
+  const ariaChecked = await control.getAttribute('aria-checked').catch(() => null);
+  if (ariaChecked === 'true') return true;
+
+  const tag = await control.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
+  const type = await control.getAttribute('type').catch(() => null);
+
+  if (tag === 'input' && type === 'checkbox') {
+    await control.check({ force: true }).catch(async () => control.click({ force: true }));
+  } else {
+    await control.click({ force: true });
   }
-  await field.check().catch(async () => field.click());
-  return true;
+
+  const checkedAfter = await control.isChecked().catch(() => null);
+  const ariaCheckedAfter = await control.getAttribute('aria-checked').catch(() => null);
+  return checkedAfter === true || ariaCheckedAfter === 'true' || (checkedAfter === null && ariaCheckedAfter === null);
+}
+
+async function checkAny(scope, labels, { optional = true } = {}) {
+  for (const label of labels) {
+    for (const role of ['checkbox', 'switch']) {
+      const control = scope.getByRole(role, { name: label, exact: false }).first();
+      if (await visible(control)) {
+        return await ensureToggleChecked(control);
+      }
+    }
+
+    const labeled = scope.getByLabel(label, { exact: false }).first();
+    if (await visible(labeled)) {
+      return await ensureToggleChecked(labeled);
+    }
+
+    // Europass' Ongoing control is sometimes a custom switch whose text is a
+    // sibling rather than an accessible label. Resolve the nearest container
+    // that owns a checkbox/switch and toggle that concrete control.
+    const texts = scope.getByText(label, { exact: true });
+    const count = await texts.count();
+
+    for (let i = 0; i < count; i += 1) {
+      const textNode = texts.nth(i);
+      if (!(await visible(textNode))) continue;
+
+      const container = textNode.locator(
+        'xpath=ancestor::*[.//*[@role="switch"] or .//input[@type="checkbox"]][1]',
+      );
+
+      if (!(await visible(container))) continue;
+
+      const control = container.locator('[role="switch"], input[type="checkbox"]').first();
+      if (await visible(control)) {
+        return await ensureToggleChecked(control);
+      }
+    }
+  }
+
+  if (!optional) console.log(`  ! Checkbox/switch not found: ${labels[0]}`);
+  return false;
 }
 
 async function clickSave(page) {
