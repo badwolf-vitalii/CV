@@ -10,6 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const profileDir = path.join(root, '.europass-browser-profile');
 const debugDir = path.join(root, '.europass-debug');
 const outputDir = path.join(root, 'output');
+const downloadTempDir = path.join(root, '.europass-downloads');
 const lang = (process.env.EUROPASS_LANG || 'en').toLowerCase() === 'it' ? 'it' : 'en';
 const editorUrl = `https://europa.eu/europass/eportfolio/screen/cv-editor?lang=${lang}`;
 const data = loadCvData(root);
@@ -2115,6 +2116,8 @@ async function saveDebug(page, reason) {
 let context;
 try {
   fs.mkdirSync(profileDir, { recursive: true });
+  fs.rmSync(downloadTempDir, { recursive: true, force: true });
+  fs.mkdirSync(downloadTempDir, { recursive: true });
 
   context = await chromium.launchPersistentContext(profileDir, {
     channel: 'msedge',
@@ -2122,7 +2125,7 @@ try {
     viewport: null,
     chromiumSandbox: true,
     acceptDownloads: true,
-    downloadsPath: outputDir,
+    downloadsPath: downloadTempDir,
     args: ['--start-maximized'],
   });
 
@@ -2154,6 +2157,7 @@ try {
   console.log('No password or EU Login credential is read by the script.');
   console.log(`CV data loaded from cv.typ and personal.yaml for ${data.name}.`);
   console.log(`Browser downloads will be saved to: ${outputDir}`);
+  console.log(`Temporary browser download files are stored in: ${downloadTempDir}`);
   console.log('A blank keeper tab is left open intentionally so Europass cannot kill an in-progress download by closing the CV tab.');
 
   await pressEnter(
@@ -2202,5 +2206,6 @@ try {
     }
   }
 
+  fs.rmSync(downloadTempDir, { recursive: true, force: true });
   rl.close();
 }
