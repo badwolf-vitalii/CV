@@ -645,20 +645,33 @@ function dateValueForType(isoDate, type) {
   return `${parts.day}/${parts.month}/${parts.year}`;
 }
 
-async function selectNumericOption(control, value) {
+async function selectNumericOption(control, value, { waitForOptions = false } = {}) {
   const target = Number(value);
-  const options = control.locator('option');
-  const count = await options.count();
+  const attempts = waitForOptions ? 12 : 1;
 
-  for (let i = 0; i < count; i += 1) {
-    const option = options.nth(i);
-    const label = normalize(await option.textContent());
-    if (Number(label) !== target) continue;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const options = control.locator('option');
+    const count = await options.count();
 
-    const optionValue = await option.getAttribute('value');
-    if (optionValue !== null) {
-      await control.selectOption(optionValue);
-      return true;
+    for (let i = 0; i < count; i += 1) {
+      const option = options.nth(i);
+      const label = normalize(await option.textContent());
+      if (Number(label) !== target) continue;
+
+      const optionValue = await option.getAttribute('value');
+      if (optionValue !== null) {
+        await control.selectOption(optionValue);
+
+        const selectedText = normalize(
+          await control.locator('option:checked').textContent().catch(() => ''),
+        );
+
+        if (Number(selectedText) === target) return true;
+      }
+    }
+
+    if (attempt + 1 < attempts) {
+      await control.page().waitForTimeout(50);
     }
   }
 
@@ -706,9 +719,21 @@ async function fillDate(scope, labels, isoDate, { optional = false } = {}) {
       // selected day is reset back to the DD placeholder.
       const yearOk = await selectNumericOption(selects.nth(2), parts.year);
       const monthOk = await selectNumericOption(selects.nth(1), parts.month);
-      const dayOk = await selectNumericOption(selects.nth(0), parts.day);
+
+      // Europass populates/rebuilds the day list asynchronously after the
+      // month/year controls change. Wait briefly for the requested day to
+      // become available, then select and verify it.
+      const dayOk = await selectNumericOption(
+        selects.nth(0),
+        parts.day,
+        { waitForOptions: true },
+      );
 
       if (dayOk && monthOk && yearOk) return true;
+
+      console.log(
+        `  ! Could not set complete date ${isoDate}: day=${dayOk}, month=${monthOk}, year=${yearOk}`,
+      );
     }
   }
 
@@ -747,13 +772,15 @@ async function checkAny(scope, labels, { optional = true } = {}) {
     }
 
     const labeled = scope.getByLabel(label, { exact: false }).first();
-    if (await visible(labeled)) {
-      return await ensureToggleChecked(labeled);
+    if (await labeled.count()) {
+      const toggled = await ensureToggleChecked(labeled);
+      if (toggled) return true;
     }
 
-    // Europass' Ongoing control is sometimes a custom switch whose text is a
-    // sibling rather than an accessible label. Resolve the nearest container
-    // that owns a checkbox/switch and toggle that concrete control.
+    // Europass' Ongoing control is a custom toggle. Its real checkbox may be
+    // visually hidden, so requiring the input itself to be visible prevents
+    // Playwright from ever toggling it. Resolve it from the visible label and
+    // force-check the underlying checkbox/switch.
     const texts = scope.getByText(label, { exact: true });
     const count = await texts.count();
 
@@ -765,11 +792,21 @@ async function checkAny(scope, labels, { optional = true } = {}) {
         'xpath=ancestor::*[.//*[@role="switch"] or .//input[@type="checkbox"]][1]',
       );
 
-      if (!(await visible(container))) continue;
+      if (!(await container.count())) continue;
 
       const control = container.locator('[role="switch"], input[type="checkbox"]').first();
-      if (await visible(control)) {
-        return await ensureToggleChecked(control);
+      if (await control.count()) {
+        const toggled = await ensureToggleChecked(control);
+        if (toggled) return true;
+      }
+
+      // Last resort for EUI toggle markup: clicking the visible text/label
+      // toggles the hidden checkbox even when the input has no accessible role.
+      await textNode.click({ force: true }).catch(() => {});
+      const hiddenCheckbox = container.locator('input[type="checkbox"]').first();
+      if (await hiddenCheckbox.count()) {
+        const checked = await hiddenCheckbox.isChecked().catch(() => false);
+        if (checked) return true;
       }
     }
   }
@@ -1173,7 +1210,12 @@ async function fillWork(page) {
       await fillDate(scope, ['End date', 'To', 'Data di fine', 'A'], job.end, { optional: true });
     } else {
       console.log('     - Ongoing');
-      await checkAny(scope, ['I currently work here', 'Current', 'Ongoing', 'Attualmente lavoro qui', 'In corso'], { optional: true });
+      const ongoingSet = await checkAny(
+        scope,
+        ['I currently work here', 'Current', 'Ongoing', 'Attualmente lavoro qui', 'In corso'],
+        { optional: true },
+      );
+      if (!ongoingSet) console.log('  ! Could not enable the Ongoing toggle.');
     }
     await fillAny(
       scope,
